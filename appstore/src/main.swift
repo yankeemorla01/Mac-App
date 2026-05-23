@@ -3,25 +3,24 @@ import QuartzCore
 import ApplicationServices
 import ServiceManagement
 
-enum SavingMode: String {
-    case appleNative = "apple"
-    case instant = "instant"
-}
+// NOTE: This is the App Store build of ClipShot.
+// All Mac App Store sandbox restrictions apply. The "instant" saving mode that
+// existed in the notarized DMG build has been removed; this build only ever
+// operates in the Apple-native saving flow (i.e. it waits for Apple's standard
+// ~5-second screenshot thumbnail to disappear before saving to history).
+//
+// See ../docs/APPSTORE.md and ../appstore/CONVERSION_NOTES.md.
 
 enum Settings {
     private static let d = UserDefaults.standard
     private static let kIntro = "clipshot.hasSeenIntro"
-    private static let kMode = "clipshot.savingMode"
     private static let kOverlay = "clipshot.showOverlay"
     private static let kLogin = "clipshot.openAtLogin"
+    private static let kFolderBookmark = "clipshot.screenshotFolderBookmark"
 
     static var hasSeenIntro: Bool {
         get { d.bool(forKey: kIntro) }
         set { d.set(newValue, forKey: kIntro) }
-    }
-    static var savingMode: SavingMode {
-        get { SavingMode(rawValue: d.string(forKey: kMode) ?? "instant") ?? .instant }
-        set { d.set(newValue.rawValue, forKey: kMode) }
     }
     static var showOverlay: Bool {
         get { (d.object(forKey: kOverlay) as? Bool) ?? true }
@@ -32,15 +31,14 @@ enum Settings {
         set { d.set(newValue, forKey: kLogin) }
     }
 
-    private static let kOriginalThumb = "clipshot.originalShowThumbnail"
-    static var originalShowThumbnail: Bool? {
-        get {
-            guard d.object(forKey: kOriginalThumb) != nil else { return nil }
-            return d.bool(forKey: kOriginalThumb)
-        }
+    /// Security-scoped bookmark of the user-selected screenshot folder.
+    /// Required because the sandbox does not let us read ~/Desktop without
+    /// explicit user consent via NSOpenPanel.
+    static var screenshotFolderBookmark: Data? {
+        get { d.data(forKey: kFolderBookmark) }
         set {
-            if let v = newValue { d.set(v, forKey: kOriginalThumb) }
-            else { d.removeObject(forKey: kOriginalThumb) }
+            if let v = newValue { d.set(v, forKey: kFolderBookmark) }
+            else { d.removeObject(forKey: kFolderBookmark) }
         }
     }
 
@@ -66,6 +64,8 @@ enum Settings {
 
 let logURL: URL = {
     let fm = FileManager.default
+    // Under the sandbox this resolves to
+    // ~/Library/Containers/com.josecasadogenao.clipshot/Data/Library/Logs/
     let dir = fm.urls(for: .libraryDirectory, in: .userDomainMask).first!.appendingPathComponent("Logs")
     try? fm.createDirectory(at: dir, withIntermediateDirectories: true,
                              attributes: [.posixPermissions: 0o700])
@@ -102,7 +102,6 @@ func clog(_ s: String) {
                                                   ofItemAtPath: logURL.path)
     }
 }
-
 
 
 
@@ -269,18 +268,21 @@ final class ThumbnailOverlay {
 
 final class WelcomeWindowController: NSWindowController {
     private var currentStep = 0
-    private let totalSteps = 6
+    // Steps: 0 welcome, 1 saving explanation, 2 folder pick, 3 overlay,
+    // 4 login, 5 privacy, 6 done.
+    private let totalSteps = 7
     private var contentBox: NSView!
     private var backButton: NSButton!
     private var nextButton: NSButton!
     private var skipButton: NSButton!
     private var dotsRow: NSStackView!
     var onFinish: (() -> Void)?
+    var onPickFolder: (() -> Void)?
 
     // Selections
-    var savingChoice: SavingMode = .instant
     var overlayChoice: Bool = true
-    var loginChoice: Bool = true
+    var loginChoice: Bool = false  // App Store guideline 2.4.5(iii): default OFF
+    var folderChosenLabel: String = "Escritorio (por defecto)"
 
     init() {
         let win = NSWindow(
@@ -351,10 +353,11 @@ final class WelcomeWindowController: NSWindowController {
         let view: NSView
         switch currentStep {
         case 0: view = buildWelcome()
-        case 1: view = buildSavingMode()
-        case 2: view = buildOverlay()
-        case 3: view = buildLogin()
-        case 4: view = buildPrivacy()
+        case 1: view = buildSavingExplanation()
+        case 2: view = buildFolderPicker()
+        case 3: view = buildOverlay()
+        case 4: view = buildLogin()
+        case 5: view = buildPrivacy()
         default: view = buildDone()
         }
         view.frame = contentBox.bounds
@@ -408,103 +411,103 @@ final class WelcomeWindowController: NSWindowController {
         return v
     }
 
-    private func buildSavingMode() -> NSView {
+    private func buildSavingExplanation() -> NSView {
         let v = NSView()
-        let title = label("¿Cómo quieres que funcione?", size: 22, weight: .bold)
-        let sub = label("Puedes cambiarlo en cualquier momento desde el menú.",
-                         size: 12, weight: .regular, color: .secondaryLabelColor, multiline: true)
-        v.addSubview(title); v.addSubview(sub)
+        let icon = NSImageView()
+        icon.image = NSImage(systemSymbolName: "clock.badge.checkmark",
+                              accessibilityDescription: nil)
+        icon.contentTintColor = .controlAccentColor
+        icon.translatesAutoresizingMaskIntoConstraints = false
+
+        let title = label("Cómo funciona el guardado", size: 22, weight: .bold)
+        let body = label("""
+        ClipShot guarda tus screenshots aproximadamente 5 segundos después de que los tomas, cuando la miniatura de Apple desaparece.
+
+        No modifica nada del sistema ni cambia tus ajustes de macOS. Solo observa la carpeta donde Apple guarda los screenshots y añade cada uno a tu historial y al portapapeles.
+
+        Esa pequeña espera es totalmente normal: es el comportamiento estándar de macOS al guardar la captura.
+        """, size: 13, weight: .regular, color: .labelColor, multiline: true)
+
+        v.addSubview(icon); v.addSubview(title); v.addSubview(body)
         title.translatesAutoresizingMaskIntoConstraints = false
-        sub.translatesAutoresizingMaskIntoConstraints = false
-
-        let card1 = makeCard(
-            tag: 0,
-            title: "Mantener experiencia de Apple",
-            body: "ClipShot espera ~5 segundos después de que tomas el screenshot (cuando la miniatura de Apple desaparece). El portapapeles e historial se actualizan al final. Ideal si quieres dejar macOS exactamente como viene."
-        )
-        let card2 = makeCard(
-            tag: 1,
-            title: "Guardado instantáneo (recomendado)",
-            body: "ClipShot reemplaza la miniatura de Apple con una propia idéntica visualmente. El portapapeles e historial se actualizan al instante. Puedes pegar de inmediato. Mejor experiencia."
-        )
-        v.addSubview(card1); v.addSubview(card2)
-        card1.translatesAutoresizingMaskIntoConstraints = false
-        card2.translatesAutoresizingMaskIntoConstraints = false
-
-        // Initial state reflects savingChoice
-        updateCardSelection(card1, card2)
+        body.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
-            title.topAnchor.constraint(equalTo: v.topAnchor, constant: 6),
+            icon.topAnchor.constraint(equalTo: v.topAnchor, constant: 10),
+            icon.centerXAnchor.constraint(equalTo: v.centerXAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 56),
+            icon.heightAnchor.constraint(equalToConstant: 56),
+            title.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 14),
             title.centerXAnchor.constraint(equalTo: v.centerXAnchor),
-            sub.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 4),
-            sub.centerXAnchor.constraint(equalTo: v.centerXAnchor),
-            card1.topAnchor.constraint(equalTo: sub.bottomAnchor, constant: 22),
-            card1.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 20),
-            card1.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -20),
-            card1.heightAnchor.constraint(equalToConstant: 100),
-            card2.topAnchor.constraint(equalTo: card1.bottomAnchor, constant: 14),
-            card2.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 20),
-            card2.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -20),
-            card2.heightAnchor.constraint(equalToConstant: 110),
+            body.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 16),
+            body.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 36),
+            body.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -36),
         ])
         return v
     }
 
-    private func makeCard(tag: Int, title cardTitle: String, body: String) -> NSButton {
-        let b = NSButton(frame: .zero)
-        b.tag = tag
-        b.title = ""
-        b.isBordered = false
-        b.wantsLayer = true
-        b.layer?.cornerRadius = 10
-        b.layer?.borderWidth = 2
-        b.target = self
-        b.action = #selector(selectCard(_:))
+    private var folderStatusLabel: NSTextField?
 
-        let t = label(cardTitle, size: 14, weight: .semibold)
-        t.translatesAutoresizingMaskIntoConstraints = false
-        let body = label(body, size: 12, weight: .regular, color: .secondaryLabelColor, multiline: true)
+    private func buildFolderPicker() -> NSView {
+        let v = NSView()
+        let icon = NSImageView()
+        icon.image = NSImage(systemSymbolName: "folder.badge.gearshape",
+                              accessibilityDescription: nil)
+        icon.contentTintColor = .controlAccentColor
+        icon.translatesAutoresizingMaskIntoConstraints = false
+
+        let title = label("Selecciona tu carpeta de screenshots", size: 20, weight: .bold)
+        let body = label("Por defecto macOS guarda los screenshots en el Escritorio. Si los guardas en otra carpeta (Descargas, una carpeta propia…), elígela aquí. ClipShot solo lee de esa carpeta, nada más.",
+                          size: 13, weight: .regular, color: .secondaryLabelColor, multiline: true)
+
+        let pickButton = NSButton(title: "Elegir carpeta…", target: self, action: #selector(pickFolderTapped))
+        pickButton.bezelStyle = .rounded
+        pickButton.translatesAutoresizingMaskIntoConstraints = false
+
+        let status = label("Carpeta actual: \(folderChosenLabel)",
+                            size: 12, weight: .regular, color: .secondaryLabelColor, multiline: true)
+        status.translatesAutoresizingMaskIntoConstraints = false
+        folderStatusLabel = status
+
+        v.addSubview(icon); v.addSubview(title); v.addSubview(body); v.addSubview(pickButton); v.addSubview(status)
+        title.translatesAutoresizingMaskIntoConstraints = false
         body.translatesAutoresizingMaskIntoConstraints = false
-        b.addSubview(t); b.addSubview(body)
+
         NSLayoutConstraint.activate([
-            t.topAnchor.constraint(equalTo: b.topAnchor, constant: 12),
-            t.leadingAnchor.constraint(equalTo: b.leadingAnchor, constant: 16),
-            t.trailingAnchor.constraint(equalTo: b.trailingAnchor, constant: -16),
-            body.topAnchor.constraint(equalTo: t.bottomAnchor, constant: 4),
-            body.leadingAnchor.constraint(equalTo: b.leadingAnchor, constant: 16),
-            body.trailingAnchor.constraint(equalTo: b.trailingAnchor, constant: -16),
-            body.bottomAnchor.constraint(lessThanOrEqualTo: b.bottomAnchor, constant: -12),
+            icon.topAnchor.constraint(equalTo: v.topAnchor, constant: 6),
+            icon.centerXAnchor.constraint(equalTo: v.centerXAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 52),
+            icon.heightAnchor.constraint(equalToConstant: 52),
+            title.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 12),
+            title.centerXAnchor.constraint(equalTo: v.centerXAnchor),
+            body.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 12),
+            body.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 36),
+            body.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -36),
+            pickButton.topAnchor.constraint(equalTo: body.bottomAnchor, constant: 22),
+            pickButton.centerXAnchor.constraint(equalTo: v.centerXAnchor),
+            status.topAnchor.constraint(equalTo: pickButton.bottomAnchor, constant: 14),
+            status.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 36),
+            status.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -36),
         ])
-        return b
+        return v
     }
 
-    @objc private func selectCard(_ sender: NSButton) {
-        savingChoice = (sender.tag == 0) ? .appleNative : .instant
-        if let parent = sender.superview, parent.subviews.count >= 2,
-           let c1 = parent.subviews.compactMap({ $0 as? NSButton }).first(where: { $0.tag == 0 }),
-           let c2 = parent.subviews.compactMap({ $0 as? NSButton }).first(where: { $0.tag == 1 }) {
-            updateCardSelection(c1, c2)
-        }
+    @objc private func pickFolderTapped() {
+        onPickFolder?()
+        folderStatusLabel?.stringValue = "Carpeta actual: \(folderChosenLabel)"
     }
 
-    private func updateCardSelection(_ c1: NSButton, _ c2: NSButton) {
-        let sel = NSColor.controlAccentColor.cgColor
-        let unsel = NSColor.separatorColor.cgColor
-        c1.layer?.borderColor = savingChoice == .appleNative ? sel : unsel
-        c1.layer?.backgroundColor = savingChoice == .appleNative
-            ? NSColor.controlAccentColor.withAlphaComponent(0.08).cgColor
-            : NSColor.controlBackgroundColor.cgColor
-        c2.layer?.borderColor = savingChoice == .instant ? sel : unsel
-        c2.layer?.backgroundColor = savingChoice == .instant
-            ? NSColor.controlAccentColor.withAlphaComponent(0.08).cgColor
-            : NSColor.controlBackgroundColor.cgColor
+    /// Called by the app delegate after the open panel completes so the
+    /// welcome window can update its status label.
+    func updateFolderLabel(_ label: String) {
+        folderChosenLabel = label
+        folderStatusLabel?.stringValue = "Carpeta actual: \(label)"
     }
 
     private func buildOverlay() -> NSView {
         let v = NSView()
         let title = label("Mostrar miniatura flotante", size: 22, weight: .bold)
-        let body = label("Cuando tomes un screenshot, ClipShot mostrará una miniatura abajo a la derecha por unos segundos. Puedes hacer click para editarla o arrastrarla a otra app, igual que con la de Apple.",
+        let body = label("Cuando tomes un screenshot, ClipShot mostrará una miniatura abajo a la derecha por unos segundos. Puedes hacer click para editarla o arrastrarla a otra app.",
                           size: 13, weight: .regular, color: .secondaryLabelColor, multiline: true)
         let toggle = NSSwitch()
         toggle.state = overlayChoice ? .on : .off
@@ -670,7 +673,6 @@ final class WelcomeWindowController: NSWindowController {
         commitAndClose()
     }
     private func commitAndClose() {
-        Settings.savingMode = savingChoice
         Settings.showOverlay = overlayChoice
         Settings.openAtLogin = loginChoice
         Settings.applyOpenAtLogin(loginChoice)
@@ -693,9 +695,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let maxHistory = 30
     var lastChangeCount: Int = -1
     var pbTimer: Timer?
-    var folderTimer: Timer?
     let storeDir: URL
     var screenshotLocation: URL = URL(fileURLWithPath: (NSString("~/Desktop").expandingTildeInPath))
+    /// True once we have a security-scoped resource open on `screenshotLocation`.
+    /// We must call stopAccessingSecurityScopedResource() on the matching URL before
+    /// opening a new one.
+    private var accessingSecurityScope: URL?
     var processedFiles: Set<String> = []
     let screenshotPrefixes = ["Screenshot", "Screen Shot", "Captura"]
     let overlay = ThumbnailOverlay()
@@ -710,8 +715,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        applyCurrentSavingMode()
-        detectScreenshotLocation()
+        resolveScreenshotFolderBookmark()
         loadHistory()
         setupStatusItem()
         startPasteboardMonitor()
@@ -725,11 +729,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func showWelcome() {
         let wc = WelcomeWindowController()
         // Pre-populate from current settings (in case re-shown later)
-        wc.savingChoice = Settings.savingMode
         wc.overlayChoice = Settings.showOverlay
-        wc.loginChoice = Settings.openAtLogin || !Settings.hasSeenIntro
+        // Default loginChoice = false (App Review guideline 2.4.5(iii)).
+        wc.loginChoice = Settings.openAtLogin
+        wc.folderChosenLabel = describeCurrentFolder()
+        wc.onPickFolder = { [weak self, weak wc] in
+            self?.promptForScreenshotFolder { picked in
+                if picked != nil, let w = wc {
+                    w.updateFolderLabel(self?.describeCurrentFolder() ?? "Escritorio")
+                }
+            }
+        }
         wc.onFinish = { [weak self] in
-            self?.applyCurrentSavingMode()
             self?.rebuildMenu()
         }
         welcomeWC = wc
@@ -744,74 +755,124 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applyCurrentSavingMode() {
-        switch Settings.savingMode {
-        case .instant:
-            disableSystemThumbnail()
-        case .appleNative:
-            restoreSystemThumbnail()
-        }
-    }
-
     func applicationWillTerminate(_ notification: Notification) {
-        restoreSystemThumbnail()
-    }
-
-    func disableSystemThumbnail() {
-        // Captura el valor original SOLO la primera vez. Si actualmente está en false,
-        // casi seguro es residuo de una sesión nuestra que no salió limpia — asumimos
-        // que el valor real del usuario era true (default de Apple). Si era genuino
-        // false, el usuario puede desactivar la miniatura otra vez en Ajustes.
-        if Settings.originalShowThumbnail == nil {
-            let current = UserDefaults(suiteName: "com.apple.screencapture")?
-                .object(forKey: "show-thumbnail") as? Bool ?? true
-            let assumed = current == false ? true : current
-            Settings.originalShowThumbnail = assumed
-            clog("Captured show-thumbnail=\(current), storing original=\(assumed)")
+        // App Store build: nothing to restore. No system state was modified.
+        // Just release any security-scoped resource we held.
+        if let url = accessingSecurityScope {
+            url.stopAccessingSecurityScopedResource()
+            accessingSecurityScope = nil
         }
-        runDefaults(value: "false")
     }
 
-    func restoreSystemThumbnail() {
-        // Restaura el valor original del usuario, no asume "true"
-        let original = Settings.originalShowThumbnail ?? true
-        runDefaults(value: original ? "true" : "false")
-        Settings.originalShowThumbnail = nil
-        clog("Restored show-thumbnail=\(original)")
+    // MARK: Security-scoped bookmark flow
+
+    /// Returns a user-friendly label for the current screenshot folder, suitable
+    /// for showing in the welcome flow.
+    private func describeCurrentFolder() -> String {
+        let p = screenshotLocation.path
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        if p == home + "/Desktop" { return "Escritorio (por defecto)" }
+        if p.hasPrefix(home + "/") {
+            return "~" + p.dropFirst(home.count)
+        }
+        return p
     }
 
-    private func runDefaults(value: String) {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
-        task.arguments = ["write", "com.apple.screencapture", "show-thumbnail", "-bool", value]
-        try? task.run()
-        task.waitUntilExit()
-        let kill = Process()
-        kill.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
-        kill.arguments = ["SystemUIServer"]
-        try? kill.run()
-        kill.waitUntilExit()
-    }
-
-    func detectScreenshotLocation() {
-        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
-        let desktop = home.appendingPathComponent("Desktop")
-        var candidate: URL = desktop
-
-        if let loc = UserDefaults(suiteName: "com.apple.screencapture")?.string(forKey: "location"), !loc.isEmpty {
-            let expanded = NSString(string: loc).expandingTildeInPath
-            let url = URL(fileURLWithPath: expanded).standardizedFileURL.resolvingSymlinksInPath()
-            // Solo aceptamos ubicaciones dentro del home del usuario
-            if url.path.hasPrefix(home.path + "/") || url.path == home.path {
-                candidate = url
+    /// On launch, if we have a saved security-scoped bookmark, resolve it and
+    /// start accessing. If not, we keep the default ~/Desktop URL — the user
+    /// will be walked through picking the real folder during the welcome flow.
+    private func resolveScreenshotFolderBookmark() {
+        guard let data = Settings.screenshotFolderBookmark else {
+            screenshotLocation = URL(fileURLWithPath:
+                (NSString("~/Desktop").expandingTildeInPath))
+            return
+        }
+        var isStale = false
+        do {
+            let url = try URL(
+                resolvingBookmarkData: data,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            )
+            if url.startAccessingSecurityScopedResource() {
+                accessingSecurityScope = url
+                screenshotLocation = url
+                clog("Resolved screenshot folder bookmark: \(url.path) (stale=\(isStale))")
+                if isStale {
+                    // Re-create the bookmark so it stops being stale.
+                    if let fresh = try? url.bookmarkData(
+                        options: [.withSecurityScope],
+                        includingResourceValuesForKeys: nil,
+                        relativeTo: nil
+                    ) {
+                        Settings.screenshotFolderBookmark = fresh
+                    }
+                }
             } else {
-                clog("Ignoring screenshot location outside home: \(url.path); falling back to Desktop")
+                clog("startAccessingSecurityScopedResource failed for \(url.path); falling back to Desktop")
+                screenshotLocation = URL(fileURLWithPath:
+                    (NSString("~/Desktop").expandingTildeInPath))
             }
+        } catch {
+            clog("Bookmark resolution failed: \(error); clearing and falling back to Desktop")
+            Settings.screenshotFolderBookmark = nil
+            screenshotLocation = URL(fileURLWithPath:
+                (NSString("~/Desktop").expandingTildeInPath))
         }
-        screenshotLocation = candidate
-        if let files = try? FileManager.default.contentsOfDirectory(atPath: screenshotLocation.path) {
-            processedFiles = Set(files)
+    }
+
+    /// Shows an NSOpenPanel to pick the screenshot folder, then persists a
+    /// security-scoped bookmark and re-installs the folder watcher.
+    func promptForScreenshotFolder(completion: ((URL?) -> Void)? = nil) {
+        let panel = NSOpenPanel()
+        panel.title = "Elige tu carpeta de screenshots"
+        panel.message = "ClipShot solo leerá nuevos screenshots desde esta carpeta."
+        panel.prompt = "Usar esta carpeta"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = URL(fileURLWithPath:
+            (NSString("~/Desktop").expandingTildeInPath))
+
+        // Run modally so the user sees it inline with the welcome flow.
+        NSApp.activate(ignoringOtherApps: true)
+        let response = panel.runModal()
+        guard response == .OK, let url = panel.url else {
+            completion?(nil)
+            return
         }
+        do {
+            let data = try url.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            Settings.screenshotFolderBookmark = data
+            // Swap accessing scope.
+            if let prev = accessingSecurityScope {
+                prev.stopAccessingSecurityScopedResource()
+                accessingSecurityScope = nil
+            }
+            if url.startAccessingSecurityScopedResource() {
+                accessingSecurityScope = url
+            }
+            screenshotLocation = url
+            clog("User picked screenshot folder: \(url.path)")
+            // Re-seed processedFiles and restart the watcher on the new path.
+            if let files = try? FileManager.default.contentsOfDirectory(atPath: url.path) {
+                processedFiles = Set(files)
+            }
+            installFolderDispatchSource()
+            completion?(url)
+        } catch {
+            clog("Failed to create security-scoped bookmark: \(error)")
+            completion?(nil)
+        }
+    }
+
+    @objc func changeScreenshotFolder() {
+        promptForScreenshotFolder { _ in }
     }
 
     func setupStatusItem() {
@@ -861,20 +922,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         let prefs = NSMenuItem(title: "Preferencias", action: nil, keyEquivalent: "")
         let prefsMenu = NSMenu()
-        let modeHeader = NSMenuItem(title: "Modo de guardado", action: nil, keyEquivalent: "")
-        modeHeader.isEnabled = false
-        prefsMenu.addItem(modeHeader)
-        let modeApple = NSMenuItem(title: "  Mantener experiencia de Apple (~5s)",
-                                     action: #selector(setModeApple), keyEquivalent: "")
-        modeApple.target = self
-        modeApple.state = Settings.savingMode == .appleNative ? .on : .off
-        prefsMenu.addItem(modeApple)
-        let modeInstant = NSMenuItem(title: "  Guardado instantáneo",
-                                       action: #selector(setModeInstant), keyEquivalent: "")
-        modeInstant.target = self
-        modeInstant.state = Settings.savingMode == .instant ? .on : .off
-        prefsMenu.addItem(modeInstant)
-        prefsMenu.addItem(.separator())
+
         let overlayItem = NSMenuItem(title: "Mostrar miniatura flotante",
                                        action: #selector(toggleOverlayPref), keyEquivalent: "")
         overlayItem.target = self
@@ -885,6 +933,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         loginItem.target = self
         loginItem.state = Settings.openAtLogin ? .on : .off
         prefsMenu.addItem(loginItem)
+        prefsMenu.addItem(.separator())
+        let changeFolder = NSMenuItem(title: "Cambiar carpeta de screenshots…",
+                                        action: #selector(changeScreenshotFolder), keyEquivalent: "")
+        changeFolder.target = self
+        prefsMenu.addItem(changeFolder)
         prefsMenu.addItem(.separator())
         let showIntro = NSMenuItem(title: "Ver bienvenida otra vez…",
                                      action: #selector(reopenWelcome), keyEquivalent: "")
@@ -903,16 +956,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = menu
     }
 
-    @objc func setModeApple() {
-        Settings.savingMode = .appleNative
-        applyCurrentSavingMode()
-        rebuildMenu()
-    }
-    @objc func setModeInstant() {
-        Settings.savingMode = .instant
-        applyCurrentSavingMode()
-        rebuildMenu()
-    }
     @objc func toggleOverlayPref() {
         Settings.showOverlay.toggle()
         rebuildMenu()
@@ -1072,7 +1115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showAbout() {
         let alert = NSAlert()
-        alert.messageText = "ClipShot 1.0"
+        alert.messageText = "ClipShot 2.0"
         alert.informativeText = """
         Guarda automáticamente cada screenshot en el portapapeles y mantiene un historial al que puedes volver.
 
@@ -1091,8 +1134,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func startPasteboardMonitor() {
         lastChangeCount = NSPasteboard.general.changeCount
-        // 0.5s es imperceptible para el usuario y ahorra mucha energía vs 0.1s
-        pbTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        // 2.0s per Mac App Store App Review guidance — clipboard polling at a
+        // sub-second cadence raises energy-impact concerns. Documented in App
+        // Review Notes. We still catch Cmd-Shift-Ctrl-3/4 screenshots; the
+        // user just won't see them in history for up to 2s, which is fine.
+        pbTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.checkPasteboard()
         }
     }
@@ -1123,9 +1169,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         saveScreenshot(image: img, showOverlay: true)
     }
 
+    // MARK: Folder watching (sandbox-safe, no Timer fallback)
+
     func startFolderMonitor() {
-        // Usa DispatchSource sobre el FD de la carpeta: solo dispara cuando hay cambios,
-        // en lugar de pollear 10×/seg. Es muchísimo más eficiente y respetuoso con la batería.
+        // DispatchSource.makeFileSystemObjectSource is sandbox-compatible
+        // PROVIDED the file descriptor was opened on a URL we have access
+        // to — either via security-scoped bookmark or via an entitlement.
+        // Per the App Store plan, we rely exclusively on a user-selected
+        // security-scoped bookmark, so this works as long as that bookmark
+        // exists. If no bookmark is present we silently skip watching;
+        // saveScreenshot still works via the pasteboard path.
         installFolderDispatchSource()
     }
 
@@ -1137,11 +1190,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let path = screenshotLocation.path
         let fd = open(path, O_EVTONLY)
         guard fd >= 0 else {
-            clog("Failed to open folder for monitoring: \(path)")
-            // Fallback al polling lento si no podemos abrir el FD
-            folderTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-                self?.checkScreenshotFolder()
-            }
+            // Under sandbox this is the expected path until the user grants
+            // access via the welcome flow's NSOpenPanel. Do NOT fall back to
+            // Timer polling — polling a sandbox-blocked path just burns
+            // energy with no events. The user will be walked through the
+            // open panel on first launch.
+            clog("Folder open(O_EVTONLY) failed for \(path) — likely no security-scoped access yet. Skipping watcher.")
             return
         }
         folderFD = fd
@@ -1166,8 +1220,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func teardownFolderDispatchSource() {
         folderSource?.cancel()
         folderSource = nil
-        folderTimer?.invalidate()
-        folderTimer = nil
     }
 
     func checkScreenshotFolder() {

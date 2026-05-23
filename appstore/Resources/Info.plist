@@ -8,37 +8,36 @@
     <string>ClipShot</string>
     <key>CFBundleIdentifier</key>
     <string>com.josecasadogenao.clipshot</string>
-    <key>CFBundleVersion</key>
-    <string>1.0</string>
+    <!-- App Store: CFBundleShortVersionString is the public version users see.
+         Distinct from the DMG track (which is at 1.x). The Store track starts
+         fresh at 2.0. CFBundleVersion is the monotonically increasing build
+         number, starts at 1. -->
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>2.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
     <key>CFBundleExecutable</key>
     <string>ClipShot</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
-    <key>CFBundleSignature</key>
-    <string>????</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
+    <!-- Menu-bar utility only; no Dock icon. -->
     <key>LSUIElement</key>
     <true/>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>NSHumanReadableCopyright</key>
     <string>© 2026 Jean Carlos Morla Genao. Todos los derechos reservados.</string>
+    <!-- Export compliance: no crypto beyond OS calls. -->
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <key>NSHighResolutionCapable</key>
     <true/>
-    <key>NSDesktopFolderUsageDescription</key>
-    <string>ClipShot necesita acceso al Escritorio para detectar nuevos screenshots.</string>
-    <key>NSDownloadsFolderUsageDescription</key>
-    <string>ClipShot necesita acceso a Descargas para detectar screenshots guardados ahí.</string>
-    <key>NSDocumentsFolderUsageDescription</key>
-    <string>ClipShot necesita acceso a Documentos para detectar screenshots guardados ahí.</string>
-    <key>NSPicturesFolderUsageDescription</key>
-    <string>ClipShot necesita acceso a Imágenes para detectar screenshots guardados ahí.</string>
+    <!-- NOTE: NS*FolderUsageDescription keys removed for the App Store build.
+         Under sandbox these are replaced by entitlements + the user-selected
+         security-scoped bookmark flow (see ClipShot.entitlements). -->
 </dict>
 </plist>
