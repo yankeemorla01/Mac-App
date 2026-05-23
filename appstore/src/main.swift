@@ -10,6 +10,26 @@ import ServiceManagement
 // ~5-second screenshot thumbnail to disappear before saving to history).
 //
 // See ../docs/APPSTORE.md and ../appstore/CONVERSION_NOTES.md.
+//
+// LOCALIZATION NOTES
+// ------------------
+// All user-facing strings live in Localizable.strings under each *.lproj folder.
+// Base / development language is Spanish (es.lproj).
+//
+// Two things that are intentionally NOT localized, by design:
+//
+//   1. Saved-file names (e.g. "Captura 2026-05-23 a las 14-30-12_a1b2c3.png").
+//      Localizing filenames is a known anti-pattern: it makes files harder for
+//      the user to share across systems, breaks shell completion, and produces
+//      mixed-language directory listings when the user changes UI language.
+//      We keep them in Spanish forever; the user's filesystem is not a UI.
+//
+//   2. Month folder names (e.g. "Enero 2026"). Same reasoning — these are
+//      on-disk artifacts the user may browse in Finder long after changing
+//      languages. Stability beats translation.
+//
+// Anything actually displayed in the UI (menu titles, alerts, welcome window,
+// open-panel prompts, accessibility labels) IS localized via NSLocalizedString.
 
 enum Settings {
     private static let d = UserDefaults.standard
@@ -79,12 +99,15 @@ let logURL: URL = {
 
 private let logMaxBytes: UInt64 = 1_048_576  // 1 MB
 
+// clog() writes to a private log file inside the sandbox container. Its output
+// is NEVER user-facing (the user does not normally see it), so log lines are
+// intentionally kept in English/developer Spanish and are NOT localized.
 func clog(_ s: String) {
     let ts = ISO8601DateFormatter().string(from: Date())
     let line = "[\(ts)] \(s)\n"
     guard let data = line.data(using: .utf8) else { return }
 
-    // Rota el log cuando supera 1 MB para no llenar el disco
+    // Rotate the log when it exceeds 1 MB so it does not fill the disk.
     if let attrs = try? FileManager.default.attributesOfItem(atPath: logURL.path),
        let size = attrs[.size] as? UInt64, size > logMaxBytes {
         let rotated = logURL.deletingPathExtension().appendingPathExtension("1.log")
@@ -120,7 +143,7 @@ final class DraggableThumbnailView: NSView, NSDraggingSource {
     required init?(coder: NSCoder) { fatalError() }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // Captura todos los clics aunque caigan sobre el NSImageView interno
+        // Capture all clicks even when they fall on the inner NSImageView.
         return bounds.contains(convert(point, from: superview)) ? self : nil
     }
 
@@ -147,8 +170,9 @@ final class DraggableThumbnailView: NSView, NSDraggingSource {
 
     private func startDrag(with event: NSEvent) {
         guard let url = fileURL, let img = image else { return }
-        // Si el archivo ya no existe (por ejemplo, clearHistory corrió entre mostrar
-        // la miniatura y arrastrar), aborta limpiamente en vez de pasar un URL muerto.
+        // If the file no longer exists (e.g. clearHistory ran between showing
+        // the thumbnail and dragging it), abort cleanly instead of forwarding
+        // a dead URL.
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         let item = NSPasteboardItem()
         item.setString(url.absoluteString, forType: .fileURL)
@@ -282,7 +306,10 @@ final class WelcomeWindowController: NSWindowController {
     // Selections
     var overlayChoice: Bool = true
     var loginChoice: Bool = false  // App Store guideline 2.4.5(iii): default OFF
-    var folderChosenLabel: String = "Escritorio (por defecto)"
+    var folderChosenLabel: String = NSLocalizedString(
+        "folder.default_label",
+        comment: "Default friendly label shown for the screenshots folder when the user has not picked one (means ~/Desktop)."
+    )
 
     init() {
         let win = NSWindow(
@@ -294,7 +321,10 @@ final class WelcomeWindowController: NSWindowController {
         win.titleVisibility = .hidden
         win.isMovableByWindowBackground = true
         win.center()
-        win.title = "Bienvenido a ClipShot"
+        win.title = NSLocalizedString(
+            "welcome.window.title",
+            comment: "Title of the onboarding / welcome window."
+        )
         super.init(window: win)
         setupChrome()
         render()
@@ -311,18 +341,30 @@ final class WelcomeWindowController: NSWindowController {
         content.addSubview(contentBox)
 
         // Bottom controls
-        skipButton = NSButton(title: "Saltar", target: self, action: #selector(skipAll))
+        let skipTitle = NSLocalizedString(
+            "welcome.button.skip",
+            comment: "Welcome window button that closes onboarding using defaults."
+        )
+        skipButton = NSButton(title: skipTitle, target: self, action: #selector(skipAll))
         skipButton.bezelStyle = .accessoryBarAction
         skipButton.isBordered = false
         skipButton.frame = NSRect(x: 30, y: 24, width: 70, height: 28)
         content.addSubview(skipButton)
 
-        backButton = NSButton(title: "Atrás", target: self, action: #selector(goBack))
+        let backTitle = NSLocalizedString(
+            "welcome.button.back",
+            comment: "Welcome window button that goes to the previous step."
+        )
+        backButton = NSButton(title: backTitle, target: self, action: #selector(goBack))
         backButton.bezelStyle = .rounded
         backButton.frame = NSRect(x: 360, y: 24, width: 80, height: 28)
         content.addSubview(backButton)
 
-        nextButton = NSButton(title: "Siguiente", target: self, action: #selector(goNext))
+        let nextTitle = NSLocalizedString(
+            "welcome.button.next",
+            comment: "Welcome window button that advances to the next step."
+        )
+        nextButton = NSButton(title: nextTitle, target: self, action: #selector(goNext))
         nextButton.bezelStyle = .rounded
         nextButton.keyEquivalent = "\r"
         nextButton.frame = NSRect(x: 450, y: 24, width: 100, height: 28)
@@ -365,7 +407,15 @@ final class WelcomeWindowController: NSWindowController {
         contentBox.addSubview(view)
 
         backButton.isHidden = currentStep == 0
-        nextButton.title = currentStep == totalSteps - 1 ? "Empezar" : "Siguiente"
+        nextButton.title = currentStep == totalSteps - 1
+            ? NSLocalizedString(
+                "welcome.button.start",
+                comment: "Welcome window primary button on the last step; finishes onboarding."
+            )
+            : NSLocalizedString(
+                "welcome.button.next",
+                comment: "Welcome window button that advances to the next step."
+            )
         skipButton.isHidden = currentStep == totalSteps - 1
 
         for (idx, dot) in dotsRow.arrangedSubviews.enumerated() {
@@ -385,10 +435,22 @@ final class WelcomeWindowController: NSWindowController {
         icon.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(icon)
 
-        let title = label("Bienvenido a ClipShot", size: 28, weight: .bold)
-        let subtitle = label("Tu historial de screenshots, siempre listo en el portapapeles.",
+        let titleText = NSLocalizedString(
+            "welcome.step0.title",
+            comment: "Welcome step 0 (hero) large title."
+        )
+        let subtitleText = NSLocalizedString(
+            "welcome.step0.subtitle",
+            comment: "Welcome step 0 (hero) one-line subtitle."
+        )
+        let bodyText = NSLocalizedString(
+            "welcome.step0.body",
+            comment: "Welcome step 0 (hero) body explaining the click-icon-to-see-history flow."
+        )
+        let title = label(titleText, size: 28, weight: .bold)
+        let subtitle = label(subtitleText,
                               size: 14, weight: .regular, color: .secondaryLabelColor, multiline: true)
-        let body = label("ClipShot guarda automáticamente cada screenshot que tomas. Click en el icono de la barra de menú para ver el historial. Click en cualquier captura para volverla a copiar al portapapeles.",
+        let body = label(bodyText,
                           size: 13, weight: .regular, color: .labelColor, multiline: true)
         for x in [title, subtitle, body] {
             x.translatesAutoresizingMaskIntoConstraints = false
@@ -419,14 +481,16 @@ final class WelcomeWindowController: NSWindowController {
         icon.contentTintColor = .controlAccentColor
         icon.translatesAutoresizingMaskIntoConstraints = false
 
-        let title = label("Cómo funciona el guardado", size: 22, weight: .bold)
-        let body = label("""
-        ClipShot guarda tus screenshots aproximadamente 5 segundos después de que los tomas, cuando la miniatura de Apple desaparece.
-
-        No modifica nada del sistema ni cambia tus ajustes de macOS. Solo observa la carpeta donde Apple guarda los screenshots y añade cada uno a tu historial y al portapapeles.
-
-        Esa pequeña espera es totalmente normal: es el comportamiento estándar de macOS al guardar la captura.
-        """, size: 13, weight: .regular, color: .labelColor, multiline: true)
+        let titleText = NSLocalizedString(
+            "welcome.step1.title",
+            comment: "Welcome step 1 title — explains how saving works."
+        )
+        let bodyText = NSLocalizedString(
+            "welcome.step1.body",
+            comment: "Welcome step 1 body — multi-paragraph explanation of the ~5s Apple thumbnail delay and that ClipShot does not modify system settings."
+        )
+        let title = label(titleText, size: 22, weight: .bold)
+        let body = label(bodyText, size: 13, weight: .regular, color: .labelColor, multiline: true)
 
         v.addSubview(icon); v.addSubview(title); v.addSubview(body)
         title.translatesAutoresizingMaskIntoConstraints = false
@@ -456,15 +520,32 @@ final class WelcomeWindowController: NSWindowController {
         icon.contentTintColor = .controlAccentColor
         icon.translatesAutoresizingMaskIntoConstraints = false
 
-        let title = label("Selecciona tu carpeta de screenshots", size: 20, weight: .bold)
-        let body = label("Por defecto macOS guarda los screenshots en el Escritorio. Si los guardas en otra carpeta (Descargas, una carpeta propia…), elígela aquí. ClipShot solo lee de esa carpeta, nada más.",
+        let titleText = NSLocalizedString(
+            "welcome.step2.title",
+            comment: "Welcome step 2 title — asks user to pick screenshots folder."
+        )
+        let bodyText = NSLocalizedString(
+            "welcome.step2.body",
+            comment: "Welcome step 2 body — explains the sandbox folder access pattern."
+        )
+        let pickButtonTitle = NSLocalizedString(
+            "welcome.step2.pick_button",
+            comment: "Welcome step 2 button label that opens the folder NSOpenPanel."
+        )
+        let statusFormat = NSLocalizedString(
+            "welcome.step2.status.format",
+            comment: "Welcome step 2 status line under the pick-folder button. %@ is the folder label."
+        )
+
+        let title = label(titleText, size: 20, weight: .bold)
+        let body = label(bodyText,
                           size: 13, weight: .regular, color: .secondaryLabelColor, multiline: true)
 
-        let pickButton = NSButton(title: "Elegir carpeta…", target: self, action: #selector(pickFolderTapped))
+        let pickButton = NSButton(title: pickButtonTitle, target: self, action: #selector(pickFolderTapped))
         pickButton.bezelStyle = .rounded
         pickButton.translatesAutoresizingMaskIntoConstraints = false
 
-        let status = label("Carpeta actual: \(folderChosenLabel)",
+        let status = label(String(format: statusFormat, folderChosenLabel),
                             size: 12, weight: .regular, color: .secondaryLabelColor, multiline: true)
         status.translatesAutoresizingMaskIntoConstraints = false
         folderStatusLabel = status
@@ -494,27 +575,46 @@ final class WelcomeWindowController: NSWindowController {
 
     @objc private func pickFolderTapped() {
         onPickFolder?()
-        folderStatusLabel?.stringValue = "Carpeta actual: \(folderChosenLabel)"
+        let statusFormat = NSLocalizedString(
+            "welcome.step2.status.format",
+            comment: "Welcome step 2 status line under the pick-folder button. %@ is the folder label."
+        )
+        folderStatusLabel?.stringValue = String(format: statusFormat, folderChosenLabel)
     }
 
     /// Called by the app delegate after the open panel completes so the
     /// welcome window can update its status label.
     func updateFolderLabel(_ label: String) {
         folderChosenLabel = label
-        folderStatusLabel?.stringValue = "Carpeta actual: \(label)"
+        let statusFormat = NSLocalizedString(
+            "welcome.step2.status.format",
+            comment: "Welcome step 2 status line under the pick-folder button. %@ is the folder label."
+        )
+        folderStatusLabel?.stringValue = String(format: statusFormat, label)
     }
 
     private func buildOverlay() -> NSView {
         let v = NSView()
-        let title = label("Mostrar miniatura flotante", size: 22, weight: .bold)
-        let body = label("Cuando tomes un screenshot, ClipShot mostrará una miniatura abajo a la derecha por unos segundos. Puedes hacer click para editarla o arrastrarla a otra app.",
+        let titleText = NSLocalizedString(
+            "welcome.step3.title",
+            comment: "Welcome step 3 title — floating thumbnail toggle."
+        )
+        let bodyText = NSLocalizedString(
+            "welcome.step3.body",
+            comment: "Welcome step 3 body — explains what the floating thumbnail does."
+        )
+        let toggleLabelText = NSLocalizedString(
+            "welcome.step3.toggle_label",
+            comment: "Welcome step 3 label next to the NSSwitch for the overlay preference."
+        )
+        let title = label(titleText, size: 22, weight: .bold)
+        let body = label(bodyText,
                           size: 13, weight: .regular, color: .secondaryLabelColor, multiline: true)
         let toggle = NSSwitch()
         toggle.state = overlayChoice ? .on : .off
         toggle.target = self
         toggle.action = #selector(toggleOverlay(_:))
-        let toggleLabel = label("Mostrar miniatura cuando capture un screenshot",
-                                  size: 13, weight: .medium)
+        let toggleLabel = label(toggleLabelText, size: 13, weight: .medium)
 
         for x: NSView in [title, body, toggle, toggleLabel] {
             x.translatesAutoresizingMaskIntoConstraints = false
@@ -540,15 +640,26 @@ final class WelcomeWindowController: NSWindowController {
 
     private func buildLogin() -> NSView {
         let v = NSView()
-        let title = label("Abrir al iniciar sesión", size: 22, weight: .bold)
-        let body = label("Para que ClipShot siempre esté listo, puede abrirse automáticamente cuando inicies tu Mac. Vive silenciosamente en la barra de menú.",
+        let titleText = NSLocalizedString(
+            "welcome.step4.title",
+            comment: "Welcome step 4 title — open at login preference."
+        )
+        let bodyText = NSLocalizedString(
+            "welcome.step4.body",
+            comment: "Welcome step 4 body — explains the open-at-login preference."
+        )
+        let toggleLabelText = NSLocalizedString(
+            "welcome.step4.toggle_label",
+            comment: "Welcome step 4 label next to the NSSwitch for the open-at-login preference."
+        )
+        let title = label(titleText, size: 22, weight: .bold)
+        let body = label(bodyText,
                           size: 13, weight: .regular, color: .secondaryLabelColor, multiline: true)
         let toggle = NSSwitch()
         toggle.state = loginChoice ? .on : .off
         toggle.target = self
         toggle.action = #selector(toggleLogin(_:))
-        let toggleLabel = label("Abrir ClipShot automáticamente al iniciar sesión",
-                                  size: 13, weight: .medium)
+        let toggleLabel = label(toggleLabelText, size: 13, weight: .medium)
         for x: NSView in [title, body, toggle, toggleLabel] {
             x.translatesAutoresizingMaskIntoConstraints = false
             v.addSubview(x)
@@ -574,23 +685,25 @@ final class WelcomeWindowController: NSWindowController {
     private func buildPrivacy() -> NSView {
         let v = NSView()
         let icon = NSImageView()
+        let iconA11y = NSLocalizedString(
+            "welcome.step5.icon_accessibility",
+            comment: "VoiceOver description for the green privacy-shield icon on welcome step 5."
+        )
         icon.image = NSImage(systemSymbolName: "lock.shield.fill",
-                              accessibilityDescription: "Privacidad")
+                              accessibilityDescription: iconA11y)
         icon.contentTintColor = .systemGreen
         icon.translatesAutoresizingMaskIntoConstraints = false
 
-        let title = label("Tu privacidad", size: 22, weight: .bold)
-        let body = label("""
-        ClipShot funciona 100% en tu Mac.
-
-        • Tus screenshots y cualquier imagen que copies al portapapeles se guardan localmente en tu carpeta de Aplicación de ClipShot.
-        • Nada se envía a internet. Nunca.
-        • Los desarrolladores no tienen ningún acceso a tus imágenes ni a tu actividad.
-        • Sin cuentas, sin servidores, sin telemetría.
-        • Puedes borrar tu historial en cualquier momento desde el menú.
-
-        Es tuya, y solo tuya.
-        """, size: 13, weight: .regular, color: .labelColor, multiline: true)
+        let titleText = NSLocalizedString(
+            "welcome.step5.title",
+            comment: "Welcome step 5 title — privacy summary."
+        )
+        let bodyText = NSLocalizedString(
+            "welcome.step5.body",
+            comment: "Welcome step 5 body — multi-line block with bullets describing privacy guarantees. Keep the bullet character and line breaks."
+        )
+        let title = label(titleText, size: 22, weight: .bold)
+        let body = label(bodyText, size: 13, weight: .regular, color: .labelColor, multiline: true)
 
         v.addSubview(icon); v.addSubview(title); v.addSubview(body)
         title.translatesAutoresizingMaskIntoConstraints = false
@@ -618,8 +731,16 @@ final class WelcomeWindowController: NSWindowController {
         icon.contentTintColor = .systemGreen
         icon.translatesAutoresizingMaskIntoConstraints = false
 
-        let title = label("¡Todo listo!", size: 28, weight: .bold)
-        let body = label("ClipShot vive en tu barra de menú (icono de cámara). Toma un screenshot cuando quieras y aparecerá listo en el portapapeles. Puedes cambiar tus preferencias en cualquier momento desde el menú.",
+        let titleText = NSLocalizedString(
+            "welcome.step6.title",
+            comment: "Welcome step 6 title — onboarding finished."
+        )
+        let bodyText = NSLocalizedString(
+            "welcome.step6.body",
+            comment: "Welcome step 6 body — summary of where to find ClipShot afterwards."
+        )
+        let title = label(titleText, size: 28, weight: .bold)
+        let body = label(bodyText,
                           size: 13, weight: .regular, color: .secondaryLabelColor, multiline: true)
         v.addSubview(icon); v.addSubview(title); v.addSubview(body)
         title.translatesAutoresizingMaskIntoConstraints = false
@@ -736,7 +857,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         wc.onPickFolder = { [weak self, weak wc] in
             self?.promptForScreenshotFolder { picked in
                 if picked != nil, let w = wc {
-                    w.updateFolderLabel(self?.describeCurrentFolder() ?? "Escritorio")
+                    let fallback = NSLocalizedString(
+                        "folder.default_short",
+                        comment: "Short fallback name for the Desktop folder; used when refreshing the welcome window after picking a folder."
+                    )
+                    w.updateFolderLabel(self?.describeCurrentFolder() ?? fallback)
                 }
             }
         }
@@ -771,7 +896,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func describeCurrentFolder() -> String {
         let p = screenshotLocation.path
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        if p == home + "/Desktop" { return "Escritorio (por defecto)" }
+        if p == home + "/Desktop" {
+            return NSLocalizedString(
+                "folder.default_label",
+                comment: "Default friendly label shown for the screenshots folder when the user has not picked one (means ~/Desktop)."
+            )
+        }
         if p.hasPrefix(home + "/") {
             return "~" + p.dropFirst(home.count)
         }
@@ -826,9 +956,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// security-scoped bookmark and re-installs the folder watcher.
     func promptForScreenshotFolder(completion: ((URL?) -> Void)? = nil) {
         let panel = NSOpenPanel()
-        panel.title = "Elige tu carpeta de screenshots"
-        panel.message = "ClipShot solo leerá nuevos screenshots desde esta carpeta."
-        panel.prompt = "Usar esta carpeta"
+        panel.title = NSLocalizedString(
+            "folderpicker.title",
+            comment: "Title of the folder-picker NSOpenPanel."
+        )
+        panel.message = NSLocalizedString(
+            "folderpicker.message",
+            comment: "Helper message shown above the file browser in the folder-picker NSOpenPanel."
+        )
+        panel.prompt = NSLocalizedString(
+            "folderpicker.prompt",
+            comment: "Confirm-button label inside the folder-picker NSOpenPanel."
+        )
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
@@ -878,7 +1017,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            let img = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "ClipShot")
+            let a11y = NSLocalizedString(
+                "statusitem.accessibility",
+                comment: "Accessibility label for the menu-bar status item (the camera icon)."
+            )
+            let img = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: a11y)
             img?.isTemplate = true
             button.image = img
         }
@@ -889,13 +1032,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        let header = NSMenuItem(title: "ClipShot — historial de screenshots", action: nil, keyEquivalent: "")
+        let headerTitle = NSLocalizedString(
+            "menu.header.title",
+            comment: "Disabled header row at the top of the status-bar menu."
+        )
+        let header = NSMenuItem(title: headerTitle, action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         menu.addItem(.separator())
 
         if history.isEmpty {
-            let item = NSMenuItem(title: "Aún no hay screenshots", action: nil, keyEquivalent: "")
+            let emptyTitle = NSLocalizedString(
+                "menu.history.empty",
+                comment: "Disabled placeholder shown in the menu when there are no captures yet."
+            )
+            let item = NSMenuItem(title: emptyTitle, action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
         } else {
@@ -911,46 +1062,85 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         menu.addItem(.separator())
-        let openFolder = NSMenuItem(title: "Abrir carpeta del historial", action: #selector(openHistoryFolder), keyEquivalent: "o")
+        let openFolderTitle = NSLocalizedString(
+            "menu.action.open_history_folder",
+            comment: "Menu item that opens the saved-history folder in Finder."
+        )
+        let openFolder = NSMenuItem(title: openFolderTitle, action: #selector(openHistoryFolder), keyEquivalent: "o")
         openFolder.target = self
         menu.addItem(openFolder)
 
-        let clear = NSMenuItem(title: "Limpiar historial", action: #selector(clearHistory), keyEquivalent: "")
+        let clearTitle = NSLocalizedString(
+            "menu.action.clear_history",
+            comment: "Menu item that opens the clear-history confirmation alert."
+        )
+        let clear = NSMenuItem(title: clearTitle, action: #selector(clearHistory), keyEquivalent: "")
         clear.target = self
         menu.addItem(clear)
 
         menu.addItem(.separator())
-        let prefs = NSMenuItem(title: "Preferencias", action: nil, keyEquivalent: "")
+        let prefsTitle = NSLocalizedString(
+            "menu.preferences.title",
+            comment: "Parent menu item for the Preferences submenu."
+        )
+        let prefs = NSMenuItem(title: prefsTitle, action: nil, keyEquivalent: "")
         let prefsMenu = NSMenu()
 
-        let overlayItem = NSMenuItem(title: "Mostrar miniatura flotante",
+        let overlayItemTitle = NSLocalizedString(
+            "menu.preferences.show_overlay",
+            comment: "Preferences submenu item that toggles the floating-thumbnail overlay."
+        )
+        let overlayItem = NSMenuItem(title: overlayItemTitle,
                                        action: #selector(toggleOverlayPref), keyEquivalent: "")
         overlayItem.target = self
         overlayItem.state = Settings.showOverlay ? .on : .off
         prefsMenu.addItem(overlayItem)
-        let loginItem = NSMenuItem(title: "Abrir al iniciar sesión",
+
+        let loginItemTitle = NSLocalizedString(
+            "menu.preferences.open_at_login",
+            comment: "Preferences submenu item that toggles open-at-login."
+        )
+        let loginItem = NSMenuItem(title: loginItemTitle,
                                      action: #selector(toggleLoginPref), keyEquivalent: "")
         loginItem.target = self
         loginItem.state = Settings.openAtLogin ? .on : .off
         prefsMenu.addItem(loginItem)
         prefsMenu.addItem(.separator())
-        let changeFolder = NSMenuItem(title: "Cambiar carpeta de screenshots…",
+
+        let changeFolderTitle = NSLocalizedString(
+            "menu.preferences.change_folder",
+            comment: "Preferences submenu item that opens the folder picker. Ends with ellipsis per Apple HIG."
+        )
+        let changeFolder = NSMenuItem(title: changeFolderTitle,
                                         action: #selector(changeScreenshotFolder), keyEquivalent: "")
         changeFolder.target = self
         prefsMenu.addItem(changeFolder)
         prefsMenu.addItem(.separator())
-        let showIntro = NSMenuItem(title: "Ver bienvenida otra vez…",
+
+        let showIntroTitle = NSLocalizedString(
+            "menu.preferences.show_welcome",
+            comment: "Preferences submenu item that re-opens the welcome / onboarding window."
+        )
+        let showIntro = NSMenuItem(title: showIntroTitle,
                                      action: #selector(reopenWelcome), keyEquivalent: "")
         showIntro.target = self
         prefsMenu.addItem(showIntro)
         prefs.submenu = prefsMenu
         menu.addItem(prefs)
 
-        let about = NSMenuItem(title: "Acerca de ClipShot", action: #selector(showAbout), keyEquivalent: "")
+        let aboutTitle = NSLocalizedString(
+            "menu.action.about",
+            comment: "Menu item that opens the About ClipShot alert."
+        )
+        let about = NSMenuItem(title: aboutTitle, action: #selector(showAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
 
-        let quit = NSMenuItem(title: "Salir", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quitTitle = NSLocalizedString(
+            "menu.action.quit",
+            comment: "Menu item that quits the app."
+        )
+        let quit = NSMenuItem(title: quitTitle, action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
 
         statusItem.menu = menu
@@ -987,8 +1177,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func formatDate(_ d: Date) -> String {
+        // Formats the per-item timestamp shown in the status-bar menu.
+        // We use the user's current locale here (rather than forcing es_ES) so
+        // dates look native to whatever UI language is active.
         let f = DateFormatter()
-        f.locale = Locale(identifier: "es_ES")
+        f.locale = Locale.current
         f.dateStyle = .short
         f.timeStyle = .medium
         return f.string(from: d)
@@ -1023,17 +1216,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func clearHistory() {
         let counts = countHistoryOnDisk()
         let alert = NSAlert()
-        alert.messageText = "¿Limpiar historial?"
-        alert.informativeText = """
-        Tienes \(counts.total) capturas en total guardadas en disco:
-          • Últimos 30 días: \(counts.recent)
-          • Anteriores: \(counts.old)
-
-        ¿Qué quieres borrar?
-        """
-        alert.addButton(withTitle: "Borrar TODO")
-        alert.addButton(withTitle: "Solo lo de más de 30 días")
-        alert.addButton(withTitle: "Cancelar")
+        alert.messageText = NSLocalizedString(
+            "alert.clear_history.title",
+            comment: "Title of the clear-history confirmation alert."
+        )
+        let bodyFormat = NSLocalizedString(
+            "alert.clear_history.body.format",
+            comment: "Clear-history alert body. %1$d total captures, %2$d recent (<=30d), %3$d older."
+        )
+        alert.informativeText = String(format: bodyFormat, counts.total, counts.recent, counts.old)
+        alert.addButton(withTitle: NSLocalizedString(
+            "alert.clear_history.button.delete_all",
+            comment: "Destructive primary button in the clear-history alert; deletes every capture."
+        ))
+        alert.addButton(withTitle: NSLocalizedString(
+            "alert.clear_history.button.delete_old",
+            comment: "Secondary button in the clear-history alert; deletes only captures older than 30 days."
+        ))
+        alert.addButton(withTitle: NSLocalizedString(
+            "alert.clear_history.button.cancel",
+            comment: "Cancel button in the clear-history alert."
+        ))
         let response = alert.runModal()
         switch response {
         case .alertFirstButtonReturn:
@@ -1068,7 +1271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func deleteAllHistory() {
         let fm = FileManager.default
-        // Defensa en profundidad: solo borramos si storeDir es exactamente nuestro path conocido.
+        // Defense in depth: only delete if storeDir is exactly our known path.
         let expected = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("ClipShot/history")
         guard storeDir.standardizedFileURL == expected?.standardizedFileURL else {
@@ -1098,7 +1301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try? fm.removeItem(at: url)
             }
         }
-        // Limpia subcarpetas vacías (meses sin capturas restantes)
+        // Clean up empty subfolders (months with no remaining captures).
         if let monthDirs = try? fm.contentsOfDirectory(at: storeDir, includingPropertiesForKeys: nil) {
             for dir in monthDirs {
                 var isDir: ObjCBool = false
@@ -1115,20 +1318,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showAbout() {
         let alert = NSAlert()
-        alert.messageText = "ClipShot 2.0"
-        alert.informativeText = """
-        Guarda automáticamente cada screenshot en el portapapeles y mantiene un historial al que puedes volver.
-
-        Cómo capturar:
-          • Cmd+Shift+Ctrl+3/4 — directo al portapapeles
-          • Cmd+Shift+3/4 — guarda en \(screenshotLocation.path)
-
-        Historial guardado en:
-          \(storeDir.path)
-
-        © 2026 Jean Carlos Morla Genao. Licencia MIT.
-        Este software se distribuye "tal cual", sin garantías expresas o implícitas. El autor no se hace responsable de pérdida de datos o daños derivados del uso.
-        """
+        alert.messageText = NSLocalizedString(
+            "about.title",
+            comment: "Title of the About ClipShot alert; includes the version number."
+        )
+        let bodyFormat = NSLocalizedString(
+            "about.body.format",
+            comment: "Body of the About alert. %1$@ is the screenshots-folder path, %2$@ is the saved-history folder path."
+        )
+        alert.informativeText = String(format: bodyFormat, screenshotLocation.path, storeDir.path)
         alert.runModal()
     }
 
@@ -1143,7 +1341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // Tope de imagen: ~100M pixels (10000x10000). Más arriba podría OOM-ear el menubar.
+    // Image cap: ~100M pixels (10000x10000). Anything bigger could OOM the menubar.
     static let maxPixelArea: Int = 100_000_000
     static let maxPixelDimension: CGFloat = 16384
 
@@ -1213,7 +1411,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         src.resume()
         folderSource = src
-        // Escaneo inicial
+        // Initial scan.
         checkScreenshotFolder()
     }
 
@@ -1233,7 +1431,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for url in urls {
             let name = url.lastPathComponent
             guard !processedFiles.contains(name) else { continue }
-            // Rechaza symlinks: pueden apuntar fuera del home y exfiltrar contenido
+            // Reject symlinks: they can point outside $HOME and exfiltrate content.
             let vals = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .creationDateKey, .fileSizeKey])
             guard vals?.isSymbolicLink != true, vals?.isRegularFile == true else {
                 processedFiles.insert(name)
@@ -1275,6 +1473,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func saveScreenshot(image: NSImage, showOverlay: Bool = false) {
         let now = Date()
         let id = UUID().uuidString
+
+        // INTENTIONALLY NOT LOCALIZED — on-disk artifacts.
+        //
+        // The month folder name (e.g. "Enero 2026") and the saved file name
+        // (e.g. "Captura 2026-05-23 a las 14-30-12_a1b2c3.png") are written to
+        // the user's filesystem. We deliberately keep them in Spanish forever,
+        // even when the UI language is English or French, because:
+        //
+        //   - Filenames are not UI. Users may keep these files for years and
+        //     browse them in Finder long after changing their system language.
+        //   - Stable names are easier to share, search, and reference in
+        //     scripts / shell.
+        //   - A folder that contains a mix of "Captura …", "Screenshot …" and
+        //     "Capture …" because the user toggled languages would be a mess.
+        //
+        // The es_ES locale is therefore hard-coded here on purpose. Do NOT
+        // replace with Locale.current.
         let monthFmt = DateFormatter()
         monthFmt.locale = Locale(identifier: "es_ES")
         monthFmt.dateFormat = "MMMM yyyy"

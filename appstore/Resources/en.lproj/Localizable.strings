@@ -1,0 +1,209 @@
+/* ClipShot — Localizable.strings (English)
+   Style: US English, professional but warm, simple words, no slang.
+   The brand name "ClipShot" is never translated.
+   File names (Captura …) and month folder names (Enero 2026 …) are intentionally
+   NOT localized — they are written to the user's filesystem and must remain stable
+   regardless of UI language. See main.swift for the matching code comments.
+*/
+
+
+/* ===== Status bar item ===== */
+
+/* Accessibility label for the menu-bar status item (the camera icon). */
+"statusitem.accessibility" = "ClipShot";
+
+
+/* ===== Main menu (status bar dropdown) ===== */
+
+/* Disabled header row at the top of the status bar menu. */
+"menu.header.title" = "ClipShot — Screenshot History";
+
+/* Disabled placeholder row shown when there are no captures yet. */
+"menu.history.empty" = "No screenshots yet";
+
+/* Menu item: opens the Finder folder where the history is stored. */
+"menu.action.open_history_folder" = "Open History Folder";
+
+/* Menu item: prompts the user to clear the saved history. */
+"menu.action.clear_history" = "Clear History";
+
+/* Menu item: parent of the Preferences submenu. */
+"menu.preferences.title" = "Preferences";
+
+/* Preferences submenu: toggles the floating thumbnail overlay. */
+"menu.preferences.show_overlay" = "Show Floating Thumbnail";
+
+/* Preferences submenu: toggles launch-at-login. */
+"menu.preferences.open_at_login" = "Open at Login";
+
+/* Preferences submenu: opens the system folder picker to pick a different
+   screenshots folder. The ellipsis follows Apple HIG (action opens a dialog). */
+"menu.preferences.change_folder" = "Change Screenshots Folder…";
+
+/* Preferences submenu: re-opens the welcome / onboarding window. */
+"menu.preferences.show_welcome" = "Show Welcome Again…";
+
+/* Menu item: opens the "About ClipShot" alert. */
+"menu.action.about" = "About ClipShot";
+
+/* Menu item: quits the app. */
+"menu.action.quit" = "Quit";
+
+
+/* ===== Welcome window ===== */
+
+/* Title of the welcome / onboarding window. */
+"welcome.window.title" = "Welcome to ClipShot";
+
+/* Welcome window: bottom-left button that closes the onboarding using defaults. */
+"welcome.button.skip" = "Skip";
+
+/* Welcome window: button that goes to the previous step. */
+"welcome.button.back" = "Back";
+
+/* Welcome window: button that advances to the next step. */
+"welcome.button.next" = "Next";
+
+/* Welcome window: button on the last step that finishes onboarding. */
+"welcome.button.start" = "Get Started";
+
+
+/* ----- Step 0: welcome / hero ----- */
+
+/* Step 0 title: large hero heading. */
+"welcome.step0.title" = "Welcome to ClipShot";
+
+/* Step 0 subtitle: one-line value proposition under the hero. */
+"welcome.step0.subtitle" = "Your screenshot history, always ready on the clipboard.";
+
+/* Step 0 body: explains the core interaction (click icon → see history → click → copy). */
+"welcome.step0.body" = "ClipShot automatically saves every screenshot you take. Click the menu bar icon to see your history. Click any screenshot to copy it back to the clipboard.";
+
+
+/* ----- Step 1: how saving works ----- */
+
+/* Step 1 title. */
+"welcome.step1.title" = "How saving works";
+
+/* Step 1 body: multi-paragraph explanation of the ~5s Apple thumbnail delay
+   and that ClipShot does not modify the system. Keep the paragraph breaks. */
+"welcome.step1.body" = "ClipShot saves your screenshots about 5 seconds after you take them, once Apple's thumbnail disappears.\n\nIt doesn't change anything in the system or alter your macOS settings. It simply watches the folder where Apple saves screenshots and adds each new one to your history and clipboard.\n\nThat brief wait is completely normal — it's just how macOS saves the screenshot.";
+
+
+/* ----- Step 2: folder picker ----- */
+
+/* Step 2 title. */
+"welcome.step2.title" = "Choose your screenshots folder";
+
+/* Step 2 body: explains why the user must pick a folder under sandbox. */
+"welcome.step2.body" = "By default, macOS saves screenshots to the Desktop. If you save them somewhere else (Downloads, a custom folder…), choose it here. ClipShot will only read from that folder — nothing more.";
+
+/* Step 2 button: opens the NSOpenPanel to choose a folder. */
+"welcome.step2.pick_button" = "Choose Folder…";
+
+/* Step 2 status line under the button. %@ is replaced with the folder label
+   (either the localized "Desktop (default)" or a path like "~/Downloads"). */
+"welcome.step2.status.format" = "Current folder: %@";
+
+/* Default friendly label used when the user has not picked a folder, or when
+   the resolved folder is exactly ~/Desktop. */
+"folder.default_label" = "Desktop (default)";
+
+/* Short fallback label for "Desktop" (used when refreshing the welcome window
+   after the user picks a new folder and the long label isn't available). */
+"folder.default_short" = "Desktop";
+
+
+/* ----- Step 3: thumbnail overlay preference ----- */
+
+/* Step 3 title. */
+"welcome.step3.title" = "Show floating thumbnail";
+
+/* Step 3 body. */
+"welcome.step3.body" = "When you take a screenshot, ClipShot will show a thumbnail in the bottom-right corner for a few seconds. Click it to edit, or drag it into another app.";
+
+/* Step 3 switch label (next to the NSSwitch). */
+"welcome.step3.toggle_label" = "Show thumbnail when I take a screenshot";
+
+
+/* ----- Step 4: open at login preference ----- */
+
+/* Step 4 title. */
+"welcome.step4.title" = "Open at login";
+
+/* Step 4 body. */
+"welcome.step4.body" = "To keep ClipShot always ready, it can open automatically when you start your Mac. It stays quietly in the menu bar.";
+
+/* Step 4 switch label (next to the NSSwitch). */
+"welcome.step4.toggle_label" = "Open ClipShot automatically at login";
+
+
+/* ----- Step 5: privacy ----- */
+
+/* Step 5 title. */
+"welcome.step5.title" = "Your privacy";
+
+/* Step 5 body: multi-line block with bullets. Keep the bullet character (•)
+   and the line breaks exactly as written; the layout depends on them. */
+"welcome.step5.body" = "ClipShot runs 100% on your Mac.\n\n• Your screenshots and any image you copy to the clipboard are saved locally in the ClipShot folder.\n• Nothing is ever sent to the internet. Ever.\n• The developers have no access to your images or your activity.\n• No accounts, no servers, no telemetry.\n• You can clear your history at any time from the menu.\n\nIt's yours, and only yours.";
+
+/* Accessibility description for the privacy shield icon on step 5. */
+"welcome.step5.icon_accessibility" = "Privacy";
+
+
+/* ----- Step 6: done ----- */
+
+/* Step 6 title. */
+"welcome.step6.title" = "You're all set!";
+
+/* Step 6 body. */
+"welcome.step6.body" = "ClipShot lives in your menu bar (camera icon). Take a screenshot whenever you like and it'll be ready on the clipboard. You can change your preferences at any time from the menu.";
+
+
+/* ===== NSOpenPanel for folder selection ===== */
+
+/* Title of the folder-picker NSOpenPanel. */
+"folderpicker.title" = "Choose your screenshots folder";
+
+/* Helper message shown above the file browser in the NSOpenPanel. */
+"folderpicker.message" = "ClipShot will only read new screenshots from this folder.";
+
+/* Confirm-button label in the NSOpenPanel. */
+"folderpicker.prompt" = "Use This Folder";
+
+
+/* ===== Clear-history confirmation alert ===== */
+
+/* Alert title. */
+"alert.clear_history.title" = "Clear history?";
+
+/* Alert body. Format args, in order:
+     %1$d — total captures on disk
+     %2$d — captures from the last 30 days
+     %3$d — captures older than 30 days
+   Keep the bullet character (•) and the line breaks. */
+"alert.clear_history.body.format" = "You have %1$d screenshots saved on disk in total:\n  • Last 30 days: %2$d\n  • Older: %3$d\n\nWhat would you like to delete?";
+
+/* Destructive primary button: deletes every saved capture. */
+"alert.clear_history.button.delete_all" = "Delete All";
+
+/* Secondary button: deletes only captures older than 30 days. */
+"alert.clear_history.button.delete_old" = "Only Older Than 30 Days";
+
+/* Cancel button. */
+"alert.clear_history.button.cancel" = "Cancel";
+
+
+/* ===== About alert ===== */
+
+/* Title of the "About ClipShot" alert. Keep the brand name; the version
+   number is part of the string and can stay as-is across languages. */
+"about.title" = "ClipShot 2.0";
+
+/* About-alert body. Format args, in order:
+     %1$@ — full filesystem path of the user's screenshots folder
+     %2$@ — full filesystem path of the saved history folder
+   Keep the keyboard-shortcut text (Cmd+Shift+Ctrl+3/4 etc.) and the bullet
+   character (•). Do not translate "Cmd", "Shift", "Ctrl" — those are the
+   localized macOS modifier names that users recognize in any language. */
+"about.body.format" = "Automatically saves every screenshot to the clipboard and keeps a history you can come back to.\n\nHow to capture:\n  • Cmd+Shift+Ctrl+3/4 — straight to the clipboard\n  • Cmd+Shift+3/4 — saves to %1$@\n\nHistory saved in:\n  %2$@\n\n© 2026 Jean Carlos Morla Genao. Licencia MIT.\nThis software is provided \"as is\", without warranty of any kind, express or implied. The author is not responsible for any data loss or damages resulting from its use.";

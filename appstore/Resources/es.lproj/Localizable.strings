@@ -1,0 +1,209 @@
+/* ClipShot — Localizable.strings (Spanish, base language)
+   Style: LATAM-neutral, professional but warm, simple words, no slang.
+   The brand name "ClipShot" is never translated.
+   File names (Captura …) and month folder names (Enero 2026 …) are intentionally
+   NOT localized — they are written to the user's filesystem and must remain stable
+   regardless of UI language. See main.swift for the matching code comments.
+*/
+
+
+/* ===== Status bar item ===== */
+
+/* Accessibility label for the menu-bar status item (the camera icon). */
+"statusitem.accessibility" = "ClipShot";
+
+
+/* ===== Main menu (status bar dropdown) ===== */
+
+/* Disabled header row at the top of the status bar menu. */
+"menu.header.title" = "ClipShot — historial de capturas";
+
+/* Disabled placeholder row shown when there are no captures yet. */
+"menu.history.empty" = "Aún no hay capturas";
+
+/* Menu item: opens the Finder folder where the history is stored. */
+"menu.action.open_history_folder" = "Abrir carpeta del historial";
+
+/* Menu item: prompts the user to clear the saved history. */
+"menu.action.clear_history" = "Limpiar historial";
+
+/* Menu item: parent of the Preferences submenu. */
+"menu.preferences.title" = "Preferencias";
+
+/* Preferences submenu: toggles the floating thumbnail overlay. */
+"menu.preferences.show_overlay" = "Mostrar miniatura flotante";
+
+/* Preferences submenu: toggles launch-at-login. */
+"menu.preferences.open_at_login" = "Abrir al iniciar sesión";
+
+/* Preferences submenu: opens the system folder picker to pick a different
+   screenshots folder. The ellipsis follows Apple HIG (action opens a dialog). */
+"menu.preferences.change_folder" = "Cambiar carpeta de capturas…";
+
+/* Preferences submenu: re-opens the welcome / onboarding window. */
+"menu.preferences.show_welcome" = "Ver bienvenida otra vez…";
+
+/* Menu item: opens the "About ClipShot" alert. */
+"menu.action.about" = "Acerca de ClipShot";
+
+/* Menu item: quits the app. */
+"menu.action.quit" = "Salir";
+
+
+/* ===== Welcome window ===== */
+
+/* Title of the welcome / onboarding window. */
+"welcome.window.title" = "Bienvenido a ClipShot";
+
+/* Welcome window: bottom-left button that closes the onboarding using defaults. */
+"welcome.button.skip" = "Saltar";
+
+/* Welcome window: button that goes to the previous step. */
+"welcome.button.back" = "Atrás";
+
+/* Welcome window: button that advances to the next step. */
+"welcome.button.next" = "Siguiente";
+
+/* Welcome window: button on the last step that finishes onboarding. */
+"welcome.button.start" = "Empezar";
+
+
+/* ----- Step 0: welcome / hero ----- */
+
+/* Step 0 title: large hero heading. */
+"welcome.step0.title" = "Bienvenido a ClipShot";
+
+/* Step 0 subtitle: one-line value proposition under the hero. */
+"welcome.step0.subtitle" = "Tu historial de capturas, siempre listo en el portapapeles.";
+
+/* Step 0 body: explains the core interaction (click icon → see history → click → copy). */
+"welcome.step0.body" = "ClipShot guarda automáticamente cada captura que tomas. Haz clic en el icono de la barra de menú para ver tu historial. Haz clic en cualquier captura para volver a copiarla al portapapeles.";
+
+
+/* ----- Step 1: how saving works ----- */
+
+/* Step 1 title. */
+"welcome.step1.title" = "Cómo funciona el guardado";
+
+/* Step 1 body: multi-paragraph explanation of the ~5s Apple thumbnail delay
+   and that ClipShot does not modify the system. Keep the paragraph breaks. */
+"welcome.step1.body" = "ClipShot guarda tus capturas unos 5 segundos después de tomarlas, cuando la miniatura de Apple desaparece.\n\nNo modifica nada del sistema ni cambia tus ajustes de macOS. Solo observa la carpeta donde Apple guarda las capturas y añade cada nueva captura a tu historial y al portapapeles.\n\nEsa pequeña espera es completamente normal: es el comportamiento estándar de macOS al guardar la captura.";
+
+
+/* ----- Step 2: folder picker ----- */
+
+/* Step 2 title. */
+"welcome.step2.title" = "Selecciona tu carpeta de capturas";
+
+/* Step 2 body: explains why the user must pick a folder under sandbox. */
+"welcome.step2.body" = "Por defecto, macOS guarda las capturas en el Escritorio. Si las guardas en otra carpeta (Descargas, una carpeta propia…), selecciónala aquí. ClipShot solo leerá de esa carpeta, nada más.";
+
+/* Step 2 button: opens the NSOpenPanel to choose a folder. */
+"welcome.step2.pick_button" = "Elegir carpeta…";
+
+/* Step 2 status line under the button. %@ is replaced with the folder label
+   (either the localized "Escritorio (por defecto)" or a path like "~/Downloads"). */
+"welcome.step2.status.format" = "Carpeta actual: %@";
+
+/* Default friendly label used when the user has not picked a folder, or when
+   the resolved folder is exactly ~/Desktop. */
+"folder.default_label" = "Escritorio (por defecto)";
+
+/* Short fallback label for "Desktop" (used when refreshing the welcome window
+   after the user picks a new folder and the long label isn't available). */
+"folder.default_short" = "Escritorio";
+
+
+/* ----- Step 3: thumbnail overlay preference ----- */
+
+/* Step 3 title. */
+"welcome.step3.title" = "Mostrar miniatura flotante";
+
+/* Step 3 body. */
+"welcome.step3.body" = "Cuando tomes una captura, ClipShot mostrará una miniatura abajo a la derecha durante unos segundos. Puedes hacer clic para editarla o arrastrarla a otra app.";
+
+/* Step 3 switch label (next to the NSSwitch). */
+"welcome.step3.toggle_label" = "Mostrar miniatura cuando tome una captura";
+
+
+/* ----- Step 4: open at login preference ----- */
+
+/* Step 4 title. */
+"welcome.step4.title" = "Abrir al iniciar sesión";
+
+/* Step 4 body. */
+"welcome.step4.body" = "Para que ClipShot siempre esté listo, puede abrirse automáticamente cuando inicies tu Mac. Permanece discretamente en la barra de menú.";
+
+/* Step 4 switch label (next to the NSSwitch). */
+"welcome.step4.toggle_label" = "Abrir ClipShot automáticamente al iniciar sesión";
+
+
+/* ----- Step 5: privacy ----- */
+
+/* Step 5 title. */
+"welcome.step5.title" = "Tu privacidad";
+
+/* Step 5 body: multi-line block with bullets. Keep the bullet character (•)
+   and the line breaks exactly as written; the layout depends on them. */
+"welcome.step5.body" = "ClipShot funciona 100 % en tu Mac.\n\n• Tus capturas y cualquier imagen que copies al portapapeles se guardan localmente en la carpeta de ClipShot.\n• Nada se envía a internet. Nunca.\n• Los desarrolladores no tienen acceso a tus imágenes ni a tu actividad.\n• Sin cuentas, sin servidores, sin telemetría.\n• Puedes borrar tu historial en cualquier momento desde el menú.\n\nEs tuya, y solo tuya.";
+
+/* Accessibility description for the privacy shield icon on step 5. */
+"welcome.step5.icon_accessibility" = "Privacidad";
+
+
+/* ----- Step 6: done ----- */
+
+/* Step 6 title. */
+"welcome.step6.title" = "¡Todo listo!";
+
+/* Step 6 body. */
+"welcome.step6.body" = "ClipShot vive en tu barra de menú (icono de cámara). Toma una captura cuando quieras y aparecerá lista en el portapapeles. Puedes cambiar tus preferencias en cualquier momento desde el menú.";
+
+
+/* ===== NSOpenPanel for folder selection ===== */
+
+/* Title of the folder-picker NSOpenPanel. */
+"folderpicker.title" = "Elige tu carpeta de capturas";
+
+/* Helper message shown above the file browser in the NSOpenPanel. */
+"folderpicker.message" = "ClipShot solo leerá nuevas capturas desde esta carpeta.";
+
+/* Confirm-button label in the NSOpenPanel. */
+"folderpicker.prompt" = "Usar esta carpeta";
+
+
+/* ===== Clear-history confirmation alert ===== */
+
+/* Alert title. */
+"alert.clear_history.title" = "¿Limpiar historial?";
+
+/* Alert body. Format args, in order:
+     %1$d — total captures on disk
+     %2$d — captures from the last 30 days
+     %3$d — captures older than 30 days
+   Keep the bullet character (•) and the line breaks. */
+"alert.clear_history.body.format" = "Tienes %1$d capturas en total guardadas en disco:\n  • Últimos 30 días: %2$d\n  • Anteriores: %3$d\n\n¿Qué quieres borrar?";
+
+/* Destructive primary button: deletes every saved capture. */
+"alert.clear_history.button.delete_all" = "Borrar todo";
+
+/* Secondary button: deletes only captures older than 30 days. */
+"alert.clear_history.button.delete_old" = "Solo lo de más de 30 días";
+
+/* Cancel button. */
+"alert.clear_history.button.cancel" = "Cancelar";
+
+
+/* ===== About alert ===== */
+
+/* Title of the "About ClipShot" alert. Keep the brand name; the version
+   number is part of the string and can stay as-is across languages. */
+"about.title" = "ClipShot 2.0";
+
+/* About-alert body. Format args, in order:
+     %1$@ — full filesystem path of the user's screenshots folder
+     %2$@ — full filesystem path of the saved history folder
+   Keep the keyboard-shortcut text (Cmd+Shift+Ctrl+3/4 etc.) and the bullet
+   character (•). Do not translate "Cmd", "Shift", "Ctrl" — those are the
+   localized macOS modifier names that users recognize in any language. */
+"about.body.format" = "Guarda automáticamente cada captura en el portapapeles y mantiene un historial al que puedes volver.\n\nCómo capturar:\n  • Cmd+Shift+Ctrl+3/4 — directo al portapapeles\n  • Cmd+Shift+3/4 — guarda en %1$@\n\nHistorial guardado en:\n  %2$@\n\n© 2026 Jean Carlos Morla Genao. Licencia MIT.\nEste software se distribuye \"tal cual\", sin garantías expresas o implícitas. El autor no se hace responsable de pérdida de datos o daños derivados del uso.";

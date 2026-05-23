@@ -1,0 +1,211 @@
+/* ClipShot — Localizable.strings (French)
+   Style : ton Apple France, simple et chaleureux, tutoiement (standard macOS grand public).
+   Le nom de marque « ClipShot » n'est jamais traduit.
+   Les noms de fichiers (Captura …) et de dossiers de mois (Enero 2026 …) ne sont
+   volontairement PAS localisés — ils sont écrits sur le disque de l'utilisateur et
+   doivent rester stables quelle que soit la langue de l'interface. Voir main.swift
+   pour les commentaires correspondants.
+*/
+
+
+/* ===== Élément de la barre d'état ===== */
+
+/* Étiquette d'accessibilité pour l'élément dans la barre des menus (icône d'appareil photo). */
+"statusitem.accessibility" = "ClipShot";
+
+
+/* ===== Menu principal (menu déroulant de la barre d'état) ===== */
+
+/* En-tête désactivé en haut du menu de la barre d'état. */
+"menu.header.title" = "ClipShot — historique des captures";
+
+/* Ligne désactivée affichée quand il n'y a encore aucune capture. */
+"menu.history.empty" = "Aucune capture pour le moment";
+
+/* Élément de menu : ouvre dans le Finder le dossier où l'historique est conservé. */
+"menu.action.open_history_folder" = "Ouvrir le dossier de l'historique";
+
+/* Élément de menu : propose à l'utilisateur d'effacer l'historique enregistré. */
+"menu.action.clear_history" = "Effacer l'historique";
+
+/* Élément de menu : parent du sous-menu Préférences. */
+"menu.preferences.title" = "Préférences";
+
+/* Sous-menu Préférences : active ou désactive la miniature flottante. */
+"menu.preferences.show_overlay" = "Afficher la miniature flottante";
+
+/* Sous-menu Préférences : active ou désactive l'ouverture automatique à la session. */
+"menu.preferences.open_at_login" = "Ouvrir à l'ouverture de session";
+
+/* Sous-menu Préférences : ouvre le sélecteur de dossier système pour choisir un autre
+   dossier de captures. Les points de suspension suivent les recommandations Apple
+   (une action qui ouvre une boîte de dialogue). */
+"menu.preferences.change_folder" = "Changer le dossier de captures…";
+
+/* Sous-menu Préférences : rouvre la fenêtre de bienvenue. */
+"menu.preferences.show_welcome" = "Revoir la bienvenue…";
+
+/* Élément de menu : ouvre la fenêtre « À propos de ClipShot ». */
+"menu.action.about" = "À propos de ClipShot";
+
+/* Élément de menu : quitte l'app. */
+"menu.action.quit" = "Quitter";
+
+
+/* ===== Fenêtre de bienvenue ===== */
+
+/* Titre de la fenêtre de bienvenue / d'accueil. */
+"welcome.window.title" = "Bienvenue dans ClipShot";
+
+/* Fenêtre de bienvenue : bouton en bas à gauche qui ferme l'accueil avec les réglages par défaut. */
+"welcome.button.skip" = "Passer";
+
+/* Fenêtre de bienvenue : bouton qui revient à l'étape précédente. */
+"welcome.button.back" = "Précédent";
+
+/* Fenêtre de bienvenue : bouton qui passe à l'étape suivante. */
+"welcome.button.next" = "Suivant";
+
+/* Fenêtre de bienvenue : bouton de la dernière étape qui termine l'accueil. */
+"welcome.button.start" = "Commencer";
+
+
+/* ----- Étape 0 : bienvenue / héros ----- */
+
+/* Étape 0 : grand titre de la première page. */
+"welcome.step0.title" = "Bienvenue dans ClipShot";
+
+/* Étape 0 : sous-titre, proposition de valeur en une ligne. */
+"welcome.step0.subtitle" = "Ton historique de captures, toujours prêt dans le presse-papiers.";
+
+/* Étape 0 : paragraphe expliquant le geste central (clic sur l'icône → historique → clic → copie). */
+"welcome.step0.body" = "ClipShot enregistre automatiquement chaque capture que tu prends. Clique sur l'icône dans la barre des menus pour voir ton historique. Clique sur n'importe quelle capture pour la recopier dans le presse-papiers.";
+
+
+/* ----- Étape 1 : comment fonctionne l'enregistrement ----- */
+
+/* Étape 1 : titre. */
+"welcome.step1.title" = "Comment l'enregistrement fonctionne";
+
+/* Étape 1 : corps multi-paragraphes expliquant le délai d'environ 5 s lié à la miniature
+   d'Apple, et le fait que ClipShot ne modifie pas le système. Conserver les sauts de paragraphe. */
+"welcome.step1.body" = "ClipShot enregistre tes captures environ 5 secondes après la prise de vue, quand la miniature d'Apple disparaît.\n\nIl ne modifie rien dans le système et ne change aucun de tes réglages macOS. Il observe simplement le dossier où Apple enregistre les captures et ajoute chaque nouvelle capture à ton historique et au presse-papiers.\n\nCe court délai est tout à fait normal : c'est le comportement standard de macOS lors de l'enregistrement.";
+
+
+/* ----- Étape 2 : sélection du dossier ----- */
+
+/* Étape 2 : titre. */
+"welcome.step2.title" = "Choisis ton dossier de captures";
+
+/* Étape 2 : corps expliquant pourquoi il faut choisir un dossier dans le bac à sable. */
+"welcome.step2.body" = "Par défaut, macOS enregistre les captures sur le Bureau. Si tu les enregistres ailleurs (Téléchargements, un dossier à toi…), sélectionne-le ici. ClipShot lira uniquement dans ce dossier, rien d'autre.";
+
+/* Étape 2 : bouton qui ouvre le sélecteur de dossier NSOpenPanel. */
+"welcome.step2.pick_button" = "Choisir un dossier…";
+
+/* Étape 2 : ligne d'état sous le bouton. %@ est remplacé par l'étiquette du dossier
+   (soit « Bureau (par défaut) » localisé, soit un chemin comme « ~/Downloads »). */
+"welcome.step2.status.format" = "Dossier actuel : %@";
+
+/* Étiquette par défaut affichée quand l'utilisateur n'a pas choisi de dossier, ou que
+   le dossier résolu est exactement ~/Desktop. */
+"folder.default_label" = "Bureau (par défaut)";
+
+/* Étiquette courte de repli pour « Bureau » (utilisée lors de l'actualisation de la fenêtre
+   de bienvenue après le choix d'un nouveau dossier, quand l'étiquette longue n'est pas disponible). */
+"folder.default_short" = "Bureau";
+
+
+/* ----- Étape 3 : préférence de miniature flottante ----- */
+
+/* Étape 3 : titre. */
+"welcome.step3.title" = "Afficher la miniature flottante";
+
+/* Étape 3 : corps. */
+"welcome.step3.body" = "Quand tu prends une capture, ClipShot affiche une miniature en bas à droite pendant quelques secondes. Tu peux cliquer dessus pour la modifier ou la glisser vers une autre app.";
+
+/* Étape 3 : étiquette du commutateur NSSwitch. */
+"welcome.step3.toggle_label" = "Afficher une miniature lors d'une capture";
+
+
+/* ----- Étape 4 : préférence d'ouverture à la session ----- */
+
+/* Étape 4 : titre. */
+"welcome.step4.title" = "Ouvrir à l'ouverture de session";
+
+/* Étape 4 : corps. */
+"welcome.step4.body" = "Pour que ClipShot soit toujours prêt, il peut s'ouvrir automatiquement au démarrage de ton Mac. Il reste discret dans la barre des menus.";
+
+/* Étape 4 : étiquette du commutateur NSSwitch. */
+"welcome.step4.toggle_label" = "Ouvrir ClipShot automatiquement à l'ouverture de session";
+
+
+/* ----- Étape 5 : confidentialité ----- */
+
+/* Étape 5 : titre. */
+"welcome.step5.title" = "Ta confidentialité";
+
+/* Étape 5 : bloc multi-lignes avec puces. Conserver le caractère puce (•) et les sauts
+   de ligne exactement tels qu'écrits ; la mise en page en dépend. */
+"welcome.step5.body" = "ClipShot fonctionne à 100 % sur ton Mac.\n\n• Tes captures et toute image que tu copies dans le presse-papiers sont conservées localement dans le dossier de ClipShot.\n• Rien n'est envoyé sur internet. Jamais.\n• Les développeurs n'ont accès ni à tes images, ni à ton activité.\n• Aucun compte, aucun serveur, aucune télémétrie.\n• Tu peux effacer ton historique à tout moment depuis le menu.\n\nC'est à toi, et à toi seul.";
+
+/* Description d'accessibilité de l'icône de bouclier de confidentialité à l'étape 5. */
+"welcome.step5.icon_accessibility" = "Confidentialité";
+
+
+/* ----- Étape 6 : terminé ----- */
+
+/* Étape 6 : titre. */
+"welcome.step6.title" = "Tout est prêt !";
+
+/* Étape 6 : corps. */
+"welcome.step6.body" = "ClipShot se trouve dans ta barre des menus (icône d'appareil photo). Prends une capture quand tu veux : elle sera prête dans le presse-papiers. Tu peux modifier tes préférences à tout moment depuis le menu.";
+
+
+/* ===== NSOpenPanel pour la sélection du dossier ===== */
+
+/* Titre du sélecteur de dossier NSOpenPanel. */
+"folderpicker.title" = "Choisis ton dossier de captures";
+
+/* Message d'aide affiché au-dessus du navigateur de fichiers dans le NSOpenPanel. */
+"folderpicker.message" = "ClipShot lira uniquement les nouvelles captures depuis ce dossier.";
+
+/* Étiquette du bouton de confirmation dans le NSOpenPanel. */
+"folderpicker.prompt" = "Utiliser ce dossier";
+
+
+/* ===== Alerte de confirmation : effacer l'historique ===== */
+
+/* Titre de l'alerte. */
+"alert.clear_history.title" = "Effacer l'historique ?";
+
+/* Corps de l'alerte. Arguments de format, dans l'ordre :
+     %1$d — total des captures sur le disque
+     %2$d — captures des 30 derniers jours
+     %3$d — captures de plus de 30 jours
+   Conserver le caractère puce (•) et les sauts de ligne. */
+"alert.clear_history.body.format" = "Tu as %1$d captures enregistrées sur le disque :\n  • 30 derniers jours : %2$d\n  • Plus anciennes : %3$d\n\nQue veux-tu effacer ?";
+
+/* Bouton principal destructif : supprime toutes les captures enregistrées. */
+"alert.clear_history.button.delete_all" = "Tout effacer";
+
+/* Bouton secondaire : supprime uniquement les captures de plus de 30 jours. */
+"alert.clear_history.button.delete_old" = "Seulement plus de 30 jours";
+
+/* Bouton Annuler. */
+"alert.clear_history.button.cancel" = "Annuler";
+
+
+/* ===== Alerte « À propos » ===== */
+
+/* Titre de l'alerte « À propos de ClipShot ». Conserver le nom de marque ; le numéro
+   de version fait partie de la chaîne et reste tel quel dans toutes les langues. */
+"about.title" = "ClipShot 2.0";
+
+/* Corps de l'alerte « À propos ». Arguments de format, dans l'ordre :
+     %1$@ — chemin complet du dossier de captures de l'utilisateur
+     %2$@ — chemin complet du dossier de l'historique enregistré
+   Conserver les raccourcis clavier (Cmd+Shift+Ctrl+3/4 etc.) et le caractère puce (•).
+   Ne pas traduire « Cmd », « Shift », « Ctrl » — ce sont les noms localisés des touches
+   modificatrices macOS, reconnus dans toutes les langues. */
+"about.body.format" = "Enregistre automatiquement chaque capture dans le presse-papiers et conserve un historique auquel tu peux revenir.\n\nComment capturer :\n  • Cmd+Shift+Ctrl+3/4 — directement dans le presse-papiers\n  • Cmd+Shift+3/4 — enregistre dans %1$@\n\nHistorique enregistré dans :\n  %2$@\n\n© 2026 Jean Carlos Morla Genao. Licencia MIT.\nCe logiciel est distribué « tel quel », sans garantie expresse ou implicite. L'auteur n'est pas responsable des pertes de données ou dommages liés à son utilisation.";
