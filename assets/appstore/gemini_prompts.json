@@ -1,0 +1,75 @@
+{
+  "$schema_note": "Prompts for Google Gemini (Imagen / Nano Banana) to generate the remaining App Store assets for ClipShot. The icon and one Cursor-with-ClipShot marketing screenshot are already sourced in ../found/. Brand: navy-to-black diagonal gradient (top-left #3b82f6 -> middle #1e3a8a -> bottom-right #000000), white camera+clip glyph, single light blue (#60a5fa) accent dot. Aesthetic: modern Apple macOS Sonoma/Sequoia, San Francisco font, vibrancy/translucency, subtle drop shadows, generous whitespace, ultra-clean.",
+  "app_summary": "ClipShot is a macOS menu-bar utility that automatically saves every screenshot you take, keeps a history of the last 30 captures (browsable from the menu bar), copies each new shot straight to the clipboard, and shows a small floating thumbnail in the bottom-right corner that you can click to open or drag-and-drop into any app. Tagline: 'Tu historial de screenshots, siempre listo en el portapapeles.' / 'Your screenshot history, always ready on your clipboard.'",
+  "missing_assets": [
+    {
+      "id": "appstore_screenshot_01_menu_history",
+      "intent": "Primary App Store screenshot showing the ClipShot menu-bar dropdown open with its screenshot history grid",
+      "target_path": "assets/appstore/needed/appstore_screenshot_01_menu_history.png",
+      "dimensions": "2880x1800",
+      "format": "PNG (RGB, no alpha)",
+      "style_constraints": "macOS Sequoia desktop with a subtle dark navy/blue abstract wallpaper that echoes the ClipShot brand gradient. Menu bar at top with the small white camera.viewfinder icon highlighted in the upper-right area. Dropdown menu open beneath the icon, using native NSMenu vibrancy (dark mode, translucent dark gray). Menu shows: header 'ClipShot — historial de screenshots', separator, then 6 rows each displaying a tiny 140x90 thumbnail of a different real-looking screenshot (a website, a chat app, a code editor, a photo, a Finder window, a maps view) with a Spanish date/time string like '23/5/26, 12:59:22'. Below: 'Abrir carpeta del historial', 'Limpiar historial', 'Preferencias ›', 'Acerca de ClipShot', 'Salir'. Crisp SF font, exact macOS spacing, no fake UI weirdness.",
+      "gemini_prompt": "Ultra-realistic 2880x1800 macOS Sequoia desktop screenshot, dark mode, San Francisco font. Wallpaper is an abstract navy-blue to black diagonal gradient (#3b82f6 top-left, #1e3a8a middle, #000000 bottom-right) with very soft light streaks. At the top, the standard macOS menu bar with translucent dark vibrancy. In the upper-right area of the menu bar, a small white camera.viewfinder SF Symbol icon for an app called ClipShot. Open directly below that icon: a native macOS NSMenu dropdown (dark vibrancy, 8px rounded corners, soft shadow) about 360px wide. Top of the menu: disabled header text 'ClipShot — historial de screenshots' in light gray, then a thin separator. Below: six menu rows each showing a real-looking 140x90 rounded-corner thumbnail of a different screenshot subject (1: a colorful website with hero image, 2: a chat conversation in a messaging app, 3: a code editor with syntax highlighting, 4: a landscape photo, 5: a macOS Finder window, 6: an Apple Maps view), each followed by a Spanish timestamp such as '23/5/26, 12:59:22'. Below the thumbnails another separator and the items 'Abrir carpeta del historial', 'Limpiar historial', 'Preferencias ›' (with a small disclosure chevron), 'Acerca de ClipShot', and 'Salir'. Pixel-perfect macOS rendering, accurate row heights, native gray separators, no spelling errors, no extra ornamentation, no fake logos. Clean, polished, suitable for the Mac App Store.",
+      "negative_prompt": "no Windows UI, no iOS UI, no fake/garbled text, no rounded outer corners on the full image (Apple wants flat rectangles), no watermarks, no people, no extra widgets in the menu bar that conflict with reality, no purple or warm-toned wallpapers"
+    },
+    {
+      "id": "appstore_screenshot_02_floating_thumbnail",
+      "intent": "App Store screenshot showing the ClipShot floating thumbnail overlay that appears bottom-right after a capture",
+      "target_path": "assets/appstore/needed/appstore_screenshot_02_floating_thumbnail.png",
+      "dimensions": "2880x1800",
+      "format": "PNG (RGB, no alpha)",
+      "style_constraints": "Same dark macOS Sequoia desktop with navy gradient wallpaper. A user has just taken a screenshot of a beautiful landscape photo in Preview.app (mid-screen, partially visible). In the bottom-right corner: ClipShot's floating thumbnail — a 240x152 rounded rectangle (10px radius) with a 1px subtle separator border and soft drop shadow. Inside the thumbnail: a smaller padded image (~228x140) of the same landscape photo, rounded 4px. The thumbnail has a faint white-blue glow suggesting it just appeared.",
+      "gemini_prompt": "Ultra-realistic 2880x1800 macOS Sequoia desktop screenshot, dark mode, San Francisco font, abstract navy-to-black gradient wallpaper (#3b82f6 -> #1e3a8a -> #000000). Centered on screen: macOS Preview.app open with a stunning landscape photograph (mountains at golden hour, cinematic). Top menu bar shows Preview's File/Edit/View menus and on the right side a small white camera.viewfinder SF Symbol icon for ClipShot. In the bottom-right corner of the desktop, with a 20px margin from the dock and right edge: a floating thumbnail card, exactly 240x152 pixels (logical), with 10px corner radius, a hairline border in light gray, a soft realistic drop shadow, and a faint blue glow indicating a fresh capture. Inside the card a 228x140 rounded-4px image showing a miniature of the same mountain landscape. No text labels on the thumbnail. The dock at the bottom is the standard translucent dark dock with a few familiar app icons. Pixel-perfect macOS rendering, accurate proportions, no spelling errors.",
+      "negative_prompt": "no notification banners, no toast popups, no Windows-style overlays, no extra UI clutter, no fake brand logos, no text on the thumbnail"
+    },
+    {
+      "id": "appstore_screenshot_03_preferences",
+      "intent": "App Store screenshot showing ClipShot's onboarding/preferences UI (saving mode card)",
+      "target_path": "assets/appstore/needed/appstore_screenshot_03_preferences.png",
+      "dimensions": "2880x1800",
+      "format": "PNG (RGB, no alpha)",
+      "style_constraints": "macOS app window centered on the navy gradient desktop. Window is the ClipShot welcome window (560x480 logical, scaled for 2x). Title bar transparent. Content shows step 2 of onboarding: title '¿Cómo quieres que funcione?', subtitle 'Puedes cambiarlo en cualquier momento desde el menú.' Two large selection cards. Card 1 (unselected, light border): title 'Mantener experiencia de Apple', body text about waiting ~5s for Apple's thumbnail to disappear. Card 2 (selected, blue accent border + light blue tinted background): title 'Guardado instantáneo (recomendado)', body about replacing Apple's thumbnail with ClipShot's own. Bottom: 'Saltar' link on the left, page-dot indicators in the center showing 2 of 6 active (one blue, others gray), 'Atrás' and 'Siguiente' buttons on the right.",
+      "gemini_prompt": "Ultra-realistic 2880x1800 macOS Sequoia desktop screenshot, dark mode, San Francisco font, navy-to-black gradient wallpaper. Centered on the desktop: a macOS app window, light appearance, ~1120x960 actual pixels, with a transparent fullSizeContentView titlebar, traffic light buttons in the top-left. Inside: a clean centered layout. At top, bold 28pt title in black: '¿Cómo quieres que funcione?'. Below it a 12pt secondary-label subtitle: 'Puedes cambiarlo en cualquier momento desde el menú.'. Below: two large selection cards stacked vertically with 14px gap, each ~960x200, rounded 10px, 2px borders. Card 1 unselected with separator-color border and white background: bold 14pt title 'Mantener experiencia de Apple', secondary-label body text 'ClipShot espera ~5 segundos despues de que tomas el screenshot (cuando la miniatura de Apple desaparece). El portapapeles e historial se actualizan al final.'. Card 2 selected with macOS systemBlue accent (#007AFF) border and a very faint blue tinted background (alpha 0.08): bold 14pt title 'Guardado instantaneo (recomendado)', secondary-label body 'ClipShot reemplaza la miniatura de Apple con una propia identica visualmente. El portapapeles e historial se actualizan al instante. Puedes pegar de inmediato.'. Near the bottom of the window: a small text link 'Saltar' on the left, six small 8px dots centered (the second one is blue/accent, the others light gray), and rounded buttons 'Atras' (secondary) and 'Siguiente' (primary blue, with white text) on the right. Pixel-perfect spacing, native macOS controls, no spelling errors, accurate Spanish accents.",
+      "negative_prompt": "no Windows window chrome, no iOS buttons, no garbled text, no fake AI-generated micro-text, no extra app icons"
+    },
+    {
+      "id": "appstore_hero_marketing_1",
+      "intent": "Hero marketing image for the App Store listing — the camera+clip icon at heroic scale floating over a dynamic ClipShot brand background",
+      "target_path": "assets/appstore/needed/appstore_hero_marketing_1.png",
+      "dimensions": "2880x1800",
+      "format": "PNG (RGB, no alpha)",
+      "style_constraints": "Cinematic hero. The ClipShot camera+clip-corner icon glyph in pure white floats in the upper-left third of the frame at large scale (~40% of frame height), with a soft glow and a subtle drop shadow. The blue accent dot (#60a5fa) sits crisply on the upper-right corner of the camera ring. Background is the brand gradient (top-left #3b82f6 -> middle #1e3a8a -> bottom-right #000000) with very soft volumetric light streaks and one or two out-of-focus floating screenshot 'cards' (rounded rectangles with miniature interface content) behind the icon, partially blurred, suggesting the history. In the lower-right third, white SF Pro display text 'ClipShot' (bold, ~120pt) with a smaller secondary line 'Every screenshot, ready on your clipboard.' (~32pt regular, light gray). Tasteful, premium, Apple-keynote energy.",
+      "gemini_prompt": "Cinematic 2880x1800 marketing hero image for a macOS app named 'ClipShot'. Background: smooth diagonal gradient from bright blue #3b82f6 in the upper-left, through deep navy #1e3a8a in the middle, to pure black #000000 in the lower-right, with very soft volumetric light streaks across the upper-left quadrant. Floating in the upper-left third: the ClipShot icon glyph at heroic scale — a pure white symbol consisting of an upper-left corner bracket and a lower-right corner bracket forming the suggestion of a viewfinder frame, a white open circle in the center with a small filled white dot inside it (camera aperture), and a single small bright blue dot #60a5fa hovering on the upper-right corner of the central ring. The glyph has a soft white glow and a subtle dark drop shadow. Behind the glyph, two or three out-of-focus floating screenshot cards (rounded rectangles, slight tilt, miniature blurred UI content), like a stack of recent captures, suggesting screenshot history. In the lower-right third of the frame, crisp white SF Pro Display Bold text reading 'ClipShot' at about 120pt, with a single secondary line below it in lighter gray (#cfd6e4), SF Pro Display Regular, about 32pt: 'Every screenshot, ready on your clipboard.'. Composition feels premium and Apple-keynote-like, generous whitespace, ultra-clean, no extra decoration. Pixel-perfect typography, no spelling errors, no people, no logos other than ClipShot's.",
+      "negative_prompt": "no extra brand logos, no clutter, no rainbow colors, no warm orange/red tones except as faint accents, no garbled letters, no AI artifacts, no watermarks, no rounded outer image corners"
+    },
+    {
+      "id": "appstore_preview_frame_1",
+      "intent": "Single frame from an App Store preview video — title card showing the icon and tagline",
+      "target_path": "assets/appstore/needed/appstore_preview_frame_1.png",
+      "dimensions": "1920x1080",
+      "format": "PNG (RGB, no alpha)",
+      "style_constraints": "16:9 title card for a 30-second App Store preview video. Same navy gradient brand background. Centered composition: the full ClipShot app icon (the rounded-square version with the camera+clip glyph and blue dot) rendered at ~500x500, with soft drop shadow. Below it, large bold white text 'ClipShot' at ~96pt SF Pro Display Bold, then a single line of light gray subtitle ~36pt SF Pro Display Regular: 'Your screenshot history, always one click away.' Generous breathing room. Use slight depth-of-field blur on background light streaks.",
+      "gemini_prompt": "Cinematic 1920x1080 title card for a Mac App Store preview video for an app named 'ClipShot'. Background: smooth diagonal gradient from #3b82f6 top-left through #1e3a8a middle to #000000 bottom-right, with very soft out-of-focus light streaks. Centered horizontally and vertically positioned in the upper-center: the ClipShot app icon — a rounded-square (squircle-style) tile about 500x500 pixels in size, filled with the same navy gradient as the background but slightly brighter, with a soft drop shadow underneath. Inside the tile, in pure white: an upper-left corner bracket, a lower-right corner bracket, a circle outline in the center with a small white dot at its core, and one bright blue #60a5fa dot on the upper-right of the central ring. Below the icon, centered: 'ClipShot' in pure white SF Pro Display Bold at about 96pt. Below that, in a lighter gray #cfd6e4, SF Pro Display Regular at about 36pt: 'Your screenshot history, always one click away.' Premium Apple-keynote energy, generous whitespace, ultra-clean. Pixel-perfect typography, no spelling errors, no extra ornamentation.",
+      "negative_prompt": "no people, no extra logos, no UI chrome, no garbled text, no watermarks, no rainbow effects"
+    }
+  ],
+  "generation_notes": {
+    "tool_suggestions": [
+      "Google Gemini Imagen 3 / Nano Banana for the hero and preview frame (best for cinematic / typographic compositions).",
+      "For the three pixel-accurate UI screenshots (menu, floating thumbnail, preferences), prefer running ClipShot locally and screen-capturing — Gemini can be unreliable for native macOS UI fidelity. Use these prompts as fallback only."
+    ],
+    "post_processing": [
+      "All final PNGs MUST be RGB, no alpha channel, exact pixel dimensions listed.",
+      "Verify no transparent pixels with: sips -g hasAlpha <file> (should report 'no').",
+      "App Store icon: must be flat square 1024x1024 — Apple applies the squircle mask. Already generated at found/appstore_icon_1024_appstore_ready.png."
+    ],
+    "color_palette": {
+      "primary_gradient_start": "#3b82f6",
+      "primary_gradient_middle": "#1e3a8a",
+      "primary_gradient_end": "#000000",
+      "accent_dot": "#60a5fa",
+      "glyph_white": "#ffffff",
+      "text_secondary_light": "#cfd6e4"
+    }
+  }
+}

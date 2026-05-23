@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>ClipShot</string>
+    <key>CFBundleDisplayName</key>
+    <string>ClipShot</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.josecasadogenao.clipshot</string>
+    <key>CFBundleVersion</key>
+    <string>1.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleExecutable</key>
+    <string>ClipShot</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleSignature</key>
+    <string>????</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.productivity</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>© 2026 José Casado Genao. Todos los derechos reservados.</string>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>ClipShot necesita acceso al Escritorio para detectar nuevos screenshots.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>ClipShot necesita acceso a Descargas para detectar screenshots guardados ahí.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>ClipShot necesita acceso a Documentos para detectar screenshots guardados ahí.</string>
+    <key>NSPicturesFolderUsageDescription</key>
+    <string>ClipShot necesita acceso a Imágenes para detectar screenshots guardados ahí.</string>
+</dict>
+</plist>

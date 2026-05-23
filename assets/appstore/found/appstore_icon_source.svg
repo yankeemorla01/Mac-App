@@ -1,0 +1,29 @@
+<svg id="clip-shot-svg" width="1024" height="1024" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="bg-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#3b82f6"/>
+            <stop offset="55%" stop-color="#1e3a8a"/>
+            <stop offset="100%" stop-color="#000000"/>
+        </linearGradient>
+        <filter id="drop-shadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#000000" flood-opacity="0.45"/>
+        </filter>
+        <filter id="app-shadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="20" stdDeviation="25" flood-color="#000000" flood-opacity="0.5"/>
+        </filter>
+    </defs>
+
+    <rect x="40" y="40" width="432" height="432" rx="100" fill="url(#bg-gradient)" filter="url(#app-shadow)"/>
+
+    <path d="M 140 40 L 372 40 Q 472 40 472 140 L 472 200 Q 256 90 40 200 L 40 140 Q 40 40 140 40 Z" fill="#ffffff" opacity="0.12"/>
+
+    <rect x="42" y="42" width="428" height="428" rx="98" fill="none" stroke="#ffffff" stroke-width="2" opacity="0.18"/>
+
+    <g filter="url(#drop-shadow)">
+        <path d="M 150 280 L 150 150 L 280 150" fill="none" stroke="#ffffff" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M 362 232 L 362 362 L 232 362" fill="none" stroke="#ffffff" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="256" cy="256" r="56" fill="none" stroke="#ffffff" stroke-width="24"/>
+        <circle cx="256" cy="256" r="18" fill="#ffffff"/>
+        <circle cx="340" cy="170" r="14" fill="#60a5fa"/>
+    </g>
+</svg>

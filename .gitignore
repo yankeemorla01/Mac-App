@@ -1,0 +1,6 @@
+build/
+*.app
+scripts/render_icon
+.DS_Store
+*.swp
+~/Library/Logs/ClipShot.log
