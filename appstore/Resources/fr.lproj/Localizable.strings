@@ -17,13 +17,17 @@
 /* ===== Menu principal (menu déroulant de la barre d'état) ===== */
 
 /* En-tête désactivé en haut du menu de la barre d'état. */
-"menu.header.title" = "ClipShot — historique des captures";
+"menu.header.title" = "ClipShot — historique";
 
-/* Ligne désactivée affichée quand il n'y a encore aucune capture. */
-"menu.history.empty" = "Aucune capture pour le moment";
+/* Ligne désactivée affichée quand l'historique est encore vide (aucune capture ni
+   texte copié). Le menu présente captures et textes mêlés dans une liste unique. */
+"menu.history.empty" = "Aucun historique pour le moment";
 
-/* Élément de menu : ouvre dans le Finder le dossier où l'historique est conservé. */
-"menu.action.open_history_folder" = "Ouvrir le dossier de l'historique";
+/* Élément de menu : ouvre dans le Finder le dossier où les captures sont conservées. */
+"menu.action.open_history_folder" = "Ouvrir le dossier des captures";
+
+/* Élément de menu : ouvre dans le Finder le dossier où les textes copiés sont conservés. */
+"menu.action.open_text_folder" = "Ouvrir le dossier des textes";
 
 /* Élément de menu : propose à l'utilisateur d'effacer l'historique enregistré. */
 "menu.action.clear_history" = "Effacer l'historique";
@@ -36,6 +40,10 @@
 
 /* Sous-menu Préférences : active ou désactive l'ouverture automatique à la session. */
 "menu.preferences.open_at_login" = "Ouvrir à l'ouverture de session";
+
+/* Sous-menu Préférences : active ou désactive l'enregistrement du texte copié dans
+   le presse-papiers. Désactivé par défaut — l'utilisateur l'active s'il le souhaite. */
+"menu.preferences.save_text" = "Enregistrer le texte copié";
 
 /* Sous-menu Préférences : ouvre le sélecteur de dossier système pour choisir un autre
    dossier de captures. Les points de suspension suivent les recommandations Apple
@@ -84,12 +92,37 @@
 
 /* ----- Étape 1 : comment fonctionne l'enregistrement ----- */
 
-/* Étape 1 : titre. */
 "welcome.step1.title" = "Comment l'enregistrement fonctionne";
 
-/* Étape 1 : corps multi-paragraphes expliquant le délai d'environ 5 s lié à la miniature
-   d'Apple, et le fait que ClipShot ne modifie pas le système. Conserver les sauts de paragraphe. */
-"welcome.step1.body" = "ClipShot enregistre tes captures environ 5 secondes après la prise de vue, quand la miniature d'Apple disparaît.\n\nIl ne modifie rien dans le système et ne change aucun de tes réglages macOS. Il observe simplement le dossier où Apple enregistre les captures et ajoute chaque nouvelle capture à ton historique et au presse-papiers.\n\nCe court délai est tout à fait normal : c'est le comportement standard de macOS lors de l'enregistrement.";
+"welcome.step1.intro" = "Quand tu prends une capture, macOS affiche une miniature pendant environ 5 secondes avant d'enregistrer le fichier. ClipShot l'ajoute à ton historique dès qu'elle est enregistrée. Tu as deux options :";
+
+"welcome.step1.option1.title" = "✓ Option facile — ne rien faire (recommandé)";
+"welcome.step1.option1.body" = "Prends une capture, attends ~5 s que la miniature d'Apple disparaisse, et ClipShot l'ajoute automatiquement à ton historique. Aucune configuration. Ça marche maintenant.";
+
+"welcome.step1.option2.title" = "⚡ Option avancée — capture instantanée (en option)";
+"welcome.step1.option2.steps" = "Si tu veux la capture instantanée, désactive la miniature d'Apple. ClipShot NE PEUT PAS le faire à ta place — c'est un réglage macOS que tu dois changer toi-même, une seule fois :\n\n  1. Clique sur le bouton « Ouvrir l'outil de capture » ci-dessous.\n  2. Une barre noire apparaît en bas de ton écran.\n  3. Dans cette barre, clique sur « Options ».\n  4. Dans le menu qui s'ouvre, décoche « Afficher la miniature flottante ».\n  5. Appuie sur Échap ou ferme la barre. Terminé.\n\nEnsuite, chaque capture est enregistrée instantanément et copiée dans le presse-papiers sans attendre.";
+
+"welcome.step1.option2.open_settings_button" = "Ouvrir l'outil de capture…";
+"welcome.step1.option2.short_body" = "On te guide pas à pas pour activer la capture instantanée. Environ 20 secondes.";
+
+/* ---- Sub-flow guidé de l'étape 1 ---- */
+"welcome.step1.guide.step_indicator" = "Étape %1$d sur %2$d";
+"welcome.step1.guide.back_to_selector" = "‹ Retour";
+"welcome.step1.guide.next_button" = "Suivant";
+"welcome.step1.guide.done_button" = "Terminé ! Continuer";
+
+"welcome.step1.guide.sub1.title" = "Ouvre l'outil de capture d'Apple";
+"welcome.step1.guide.sub1.body" = "Clique sur le bouton ci-dessous. L'outil de capture natif de macOS s'ouvre et une barre noire horizontale apparaît en bas de ton écran.";
+"welcome.step1.guide.sub1.button" = "Ouvrir l'outil de capture";
+
+"welcome.step1.guide.sub2.title" = "Clique sur « Options » dans la barre";
+"welcome.step1.guide.sub2.body" = "Dans la barre noire qui est apparue en bas, repère le bouton « Options ». Il est entre les boutons de capture et le bouton « Capturer ». Clique dessus pour ouvrir le menu.";
+
+"welcome.step1.guide.sub3.title" = "Décoche « Afficher la miniature flottante »";
+"welcome.step1.guide.sub3.body" = "Dans le menu qui s'est ouvert, tu verras plusieurs réglages. Cherche la section « Options » et clique sur « Afficher la miniature flottante » pour le décocher. La coche à gauche doit disparaître.";
+
+"welcome.step1.guide.sub4.title" = "Voilà ! Tu as la capture instantanée";
+"welcome.step1.guide.sub4.body" = "Tu peux fermer la barre d'Apple avec la touche Échap. À partir de maintenant, chaque capture prise avec Cmd+Shift+4 sera enregistrée instantanément et copiée dans le presse-papiers sans attendre.";
 
 
 /* ----- Étape 2 : sélection du dossier ----- */
@@ -184,7 +217,7 @@
      %2$d — captures des 30 derniers jours
      %3$d — captures de plus de 30 jours
    Conserver le caractère puce (•) et les sauts de ligne. */
-"alert.clear_history.body.format" = "Tu as %1$d captures enregistrées sur le disque :\n  • 30 derniers jours : %2$d\n  • Plus anciennes : %3$d\n\nQue veux-tu effacer ?";
+"alert.clear_history.body.format" = "Captures enregistrées : %1$d\n  • 30 derniers jours : %2$d\n  • Plus anciennes : %3$d\n\nTextes enregistrés : %4$d\n  • 30 derniers jours : %5$d\n  • Plus anciens : %6$d\n\nQue veux-tu effacer ?";
 
 /* Bouton principal destructif : supprime toutes les captures enregistrées. */
 "alert.clear_history.button.delete_all" = "Tout effacer";
@@ -200,7 +233,7 @@
 
 /* Titre de l'alerte « À propos de ClipShot ». Conserver le nom de marque ; le numéro
    de version fait partie de la chaîne et reste tel quel dans toutes les langues. */
-"about.title" = "ClipShot 2.0";
+"about.title" = "ClipShot 2.1";
 
 /* Corps de l'alerte « À propos ». Arguments de format, dans l'ordre :
      %1$@ — chemin complet du dossier de captures de l'utilisateur
@@ -208,4 +241,4 @@
    Conserver les raccourcis clavier (Cmd+Shift+Ctrl+3/4 etc.) et le caractère puce (•).
    Ne pas traduire « Cmd », « Shift », « Ctrl » — ce sont les noms localisés des touches
    modificatrices macOS, reconnus dans toutes les langues. */
-"about.body.format" = "Enregistre automatiquement chaque capture dans le presse-papiers et conserve un historique auquel tu peux revenir.\n\nComment capturer :\n  • Cmd+Shift+Ctrl+3/4 — directement dans le presse-papiers\n  • Cmd+Shift+3/4 — enregistre dans %1$@\n\nHistorique enregistré dans :\n  %2$@\n\n© 2026 Jean Carlos Morla Genao. Licencia MIT.\nCe logiciel est distribué « tel quel », sans garantie expresse ou implicite. L'auteur n'est pas responsable des pertes de données ou dommages liés à son utilisation.";
+"about.body.format" = "Enregistre automatiquement chaque capture et, si tu l'actives, chaque texte que tu copies. Conserve un historique auquel tu peux revenir d'un seul clic.\n\nComment capturer :\n  • Cmd+Shift+Ctrl+3/4 — directement dans le presse-papiers\n  • Cmd+Shift+3/4 — enregistre dans %1$@\n  • Cmd+C — enregistre le texte dans l'historique (si activé dans les Préférences)\n\nHistorique enregistré dans :\n  %2$@\n\n© 2026 Jean Carlos Morla Genao. Licence MIT.\nCe logiciel est distribué « tel quel », sans garantie expresse ou implicite. L'auteur n'est pas responsable des pertes de données ou dommages liés à son utilisation.";

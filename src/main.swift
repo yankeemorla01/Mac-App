@@ -32,6 +32,12 @@ enum Settings {
         set { d.set(newValue, forKey: kLogin) }
     }
 
+    private static let kSaveText = "clipshot.saveTextHistory"
+    static var saveTextHistory: Bool {
+        get { d.bool(forKey: kSaveText) }
+        set { d.set(newValue, forKey: kSaveText) }
+    }
+
     private static let kOriginalThumb = "clipshot.originalShowThumbnail"
     static var originalShowThumbnail: Bool? {
         get {
@@ -687,14 +693,24 @@ struct HistoryItem {
     var image: NSImage? { NSImage(contentsOf: imagePath) }
 }
 
+struct TextItem {
+    let id: String
+    let date: Date
+    let textPath: URL
+    var content: String? { try? String(contentsOf: textPath, encoding: .utf8) }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
     var history: [HistoryItem] = []
+    var textHistory: [TextItem] = []
     let maxHistory = 30
+    let maxTextHistory = 30
     var lastChangeCount: Int = -1
     var pbTimer: Timer?
     var folderTimer: Timer?
     let storeDir: URL
+    let textStoreDir: URL
     var screenshotLocation: URL = URL(fileURLWithPath: (NSString("~/Desktop").expandingTildeInPath))
     var processedFiles: Set<String> = []
     let screenshotPrefixes = ["Screenshot", "Screen Shot", "Captura"]
@@ -704,7 +720,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     override init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         storeDir = appSupport.appendingPathComponent("ClipShot/history")
+        textStoreDir = appSupport.appendingPathComponent("ClipShot/text")
         try? FileManager.default.createDirectory(at: storeDir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: textStoreDir, withIntermediateDirectories: true)
         super.init()
     }
 
@@ -713,6 +731,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applyCurrentSavingMode()
         detectScreenshotLocation()
         loadHistory()
+        loadTextHistory()
         setupStatusItem()
         startPasteboardMonitor()
         startFolderMonitor()
@@ -828,31 +847,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        let header = NSMenuItem(title: "ClipShot — historial de screenshots", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: "ClipShot — historial", action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         menu.addItem(.separator())
 
-        if history.isEmpty {
-            let item = NSMenuItem(title: "Aún no hay screenshots", action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
+        // Lista unificada: capturas y textos intercalados por fecha (más reciente arriba).
+        // Cada uno se ve distinto: las capturas muestran su thumbnail real, los textos
+        // se renderizan como una tarjetita con el preview adentro.
+        let merged = mergedHistoryEntries()
+        if merged.isEmpty {
+            let empty = NSMenuItem(title: "  Aún no hay historial", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
         } else {
-            for (idx, h) in history.enumerated() {
-                let item = NSMenuItem(title: "  " + formatDate(h.date), action: #selector(copyHistoryItem(_:)), keyEquivalent: "")
-                item.target = self
-                item.tag = idx
-                if let img = h.image {
-                    item.image = thumbnail(from: img, maxSize: NSSize(width: 140, height: 90))
+            for entry in merged {
+                switch entry {
+                case .image(let idx, let h):
+                    let item = NSMenuItem(title: "  " + formatDate(h.date),
+                                            action: #selector(copyHistoryItem(_:)), keyEquivalent: "")
+                    item.target = self
+                    item.tag = idx
+                    if let img = h.image {
+                        item.image = thumbnail(from: img, maxSize: NSSize(width: 140, height: 90))
+                    }
+                    menu.addItem(item)
+                case .text(let idx, let t):
+                    let body = textPreview(t.content ?? "", limit: 120)
+                    let item = NSMenuItem(title: "  " + formatDate(t.date),
+                                            action: #selector(copyTextHistoryItem(_:)), keyEquivalent: "")
+                    item.target = self
+                    item.tag = idx
+                    item.image = textCard(preview: body, size: NSSize(width: 140, height: 90))
+                    item.toolTip = t.content
+                    menu.addItem(item)
                 }
-                menu.addItem(item)
             }
         }
 
         menu.addItem(.separator())
-        let openFolder = NSMenuItem(title: "Abrir carpeta del historial", action: #selector(openHistoryFolder), keyEquivalent: "o")
+        let openFolder = NSMenuItem(title: "Abrir carpeta de capturas", action: #selector(openHistoryFolder), keyEquivalent: "o")
         openFolder.target = self
         menu.addItem(openFolder)
+
+        let openTextFolder = NSMenuItem(title: "Abrir carpeta de texto", action: #selector(openTextHistoryFolder), keyEquivalent: "")
+        openTextFolder.target = self
+        menu.addItem(openTextFolder)
 
         let clear = NSMenuItem(title: "Limpiar historial", action: #selector(clearHistory), keyEquivalent: "")
         clear.target = self
@@ -885,6 +925,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         loginItem.target = self
         loginItem.state = Settings.openAtLogin ? .on : .off
         prefsMenu.addItem(loginItem)
+        let textHistoryItem = NSMenuItem(title: "Guardar texto copiado",
+                                           action: #selector(toggleTextHistoryPref), keyEquivalent: "")
+        textHistoryItem.target = self
+        textHistoryItem.state = Settings.saveTextHistory ? .on : .off
+        prefsMenu.addItem(textHistoryItem)
         prefsMenu.addItem(.separator())
         let showIntro = NSMenuItem(title: "Ver bienvenida otra vez…",
                                      action: #selector(reopenWelcome), keyEquivalent: "")
@@ -922,8 +967,95 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Settings.applyOpenAtLogin(Settings.openAtLogin)
         rebuildMenu()
     }
+    @objc func toggleTextHistoryPref() {
+        Settings.saveTextHistory.toggle()
+        rebuildMenu()
+    }
     @objc func reopenWelcome() {
         showWelcome()
+    }
+
+    func textPreview(_ text: String, limit: Int = 60) -> String {
+        let oneLine = text.replacingOccurrences(of: "\n", with: " ")
+                          .replacingOccurrences(of: "\r", with: " ")
+                          .replacingOccurrences(of: "\t", with: " ")
+        let collapsed = oneLine.components(separatedBy: .whitespaces)
+                                .filter { !$0.isEmpty }
+                                .joined(separator: " ")
+        if collapsed.count <= limit { return collapsed }
+        let idx = collapsed.index(collapsed.startIndex, offsetBy: limit)
+        return String(collapsed[..<idx]) + "…"
+    }
+
+    enum MergedEntry {
+        case image(Int, HistoryItem)
+        case text(Int, TextItem)
+        var date: Date {
+            switch self {
+            case .image(_, let h): return h.date
+            case .text(_, let t): return t.date
+            }
+        }
+    }
+
+    func mergedHistoryEntries(limit: Int = 20) -> [MergedEntry] {
+        var entries: [MergedEntry] = history.enumerated().map { .image($0.offset, $0.element) }
+        if Settings.saveTextHistory {
+            entries.append(contentsOf: textHistory.enumerated().map { .text($0.offset, $0.element) })
+        }
+        entries.sort { $0.date > $1.date }
+        return Array(entries.prefix(limit))
+    }
+
+    func textCard(preview: String, size: NSSize) -> NSImage {
+        let img = NSImage(size: size)
+        img.lockFocus()
+        defer { img.unlockFocus() }
+
+        let rect = NSRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
+        NSColor.controlBackgroundColor.setFill()
+        path.fill()
+        NSColor.separatorColor.setStroke()
+        path.lineWidth = 1
+        path.stroke()
+
+        let iconSize: CGFloat = 13
+        let iconPadding: CGFloat = 6
+        if let raw = NSImage(systemSymbolName: "text.quote", accessibilityDescription: nil) {
+            let cfg = NSImage.SymbolConfiguration(pointSize: iconSize, weight: .medium)
+            let symbol = raw.withSymbolConfiguration(cfg) ?? raw
+            let tinted = NSImage(size: NSSize(width: iconSize, height: iconSize))
+            tinted.lockFocus()
+            NSColor.secondaryLabelColor.set()
+            let drawRect = NSRect(origin: .zero, size: tinted.size)
+            symbol.draw(in: drawRect, from: .zero, operation: .sourceOver, fraction: 1)
+            drawRect.fill(using: .sourceIn)
+            tinted.unlockFocus()
+            tinted.draw(in: NSRect(x: iconPadding,
+                                     y: size.height - iconPadding - iconSize,
+                                     width: iconSize,
+                                     height: iconSize),
+                          from: .zero, operation: .sourceOver, fraction: 1)
+        }
+
+        let textRect = NSRect(x: iconPadding,
+                                y: iconPadding,
+                                width: size.width - iconPadding * 2,
+                                height: size.height - iconSize - iconPadding * 2)
+        let para = NSMutableParagraphStyle()
+        para.lineBreakMode = .byTruncatingTail
+        para.alignment = .left
+        para.lineSpacing = 1
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .regular),
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: para,
+        ]
+        let attr = NSAttributedString(string: preview, attributes: attrs)
+        attr.draw(with: textRect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], context: nil)
+
+        return img
     }
 
     func thumbnail(from image: NSImage, maxSize: NSSize) -> NSImage {
@@ -977,14 +1109,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(storeDir)
     }
 
+    @objc func openTextHistoryFolder() {
+        NSWorkspace.shared.open(textStoreDir)
+    }
+
+    @objc func copyTextHistoryItem(_ sender: NSMenuItem) {
+        let idx = sender.tag
+        guard idx >= 0 && idx < textHistory.count else { return }
+        guard let text = textHistory[idx].content else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(text, forType: .string)
+        lastChangeCount = pb.changeCount
+        flashStatusIcon(symbol: "checkmark.circle.fill")
+    }
+
     @objc func clearHistory() {
         let counts = countHistoryOnDisk()
+        let textCounts = countTextOnDisk()
         let alert = NSAlert()
         alert.messageText = "¿Limpiar historial?"
         alert.informativeText = """
-        Tienes \(counts.total) capturas en total guardadas en disco:
+        Capturas guardadas: \(counts.total)
           • Últimos 30 días: \(counts.recent)
           • Anteriores: \(counts.old)
+
+        Textos guardados: \(textCounts.total)
+          • Últimos 30 días: \(textCounts.recent)
+          • Anteriores: \(textCounts.old)
 
         ¿Qué quieres borrar?
         """
@@ -995,13 +1147,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch response {
         case .alertFirstButtonReturn:
             deleteAllHistory()
+            deleteAllText()
         case .alertSecondButtonReturn:
             deleteHistoryOlderThan(days: 30)
+            deleteTextOlderThan(days: 30)
         default:
             return
         }
         loadHistory()
+        loadTextHistory()
         rebuildMenu()
+    }
+
+    private func countTextOnDisk() -> (total: Int, recent: Int, old: Int) {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(at: textStoreDir,
+                                               includingPropertiesForKeys: [.creationDateKey, .isRegularFileKey],
+                                               options: [.skipsHiddenFiles]) else {
+            return (0, 0, 0)
+        }
+        let cutoff = Date().addingTimeInterval(-30 * 24 * 3600)
+        var total = 0, recent = 0, old = 0
+        for case let url as URL in enumerator {
+            let vals = try? url.resourceValues(forKeys: [.creationDateKey, .isRegularFileKey])
+            guard vals?.isRegularFile == true, url.pathExtension.lowercased() == "txt" else { continue }
+            total += 1
+            let date = vals?.creationDate ?? Date.distantPast
+            if date >= cutoff { recent += 1 } else { old += 1 }
+        }
+        return (total, recent, old)
+    }
+
+    private func deleteAllText() {
+        let fm = FileManager.default
+        let expected = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("ClipShot/text")
+        guard textStoreDir.standardizedFileURL == expected?.standardizedFileURL else {
+            clog("Refused deleteAllText: unexpected textStoreDir \(textStoreDir.path)")
+            return
+        }
+        if let entries = try? fm.contentsOfDirectory(at: textStoreDir, includingPropertiesForKeys: nil) {
+            for e in entries { try? fm.removeItem(at: e) }
+        }
+        textHistory.removeAll()
+    }
+
+    private func deleteTextOlderThan(days: Int) {
+        let fm = FileManager.default
+        let cutoff = Date().addingTimeInterval(-Double(days) * 24 * 3600)
+        guard let enumerator = fm.enumerator(at: textStoreDir,
+                                               includingPropertiesForKeys: [.creationDateKey, .isRegularFileKey],
+                                               options: [.skipsHiddenFiles]) else { return }
+        var emptiedDirs: [URL] = []
+        for case let url as URL in enumerator {
+            let vals = try? url.resourceValues(forKeys: [.creationDateKey, .isRegularFileKey])
+            guard vals?.isRegularFile == true, url.pathExtension.lowercased() == "txt" else { continue }
+            let date = vals?.creationDate ?? Date.distantPast
+            if date < cutoff {
+                try? fm.removeItem(at: url)
+            }
+        }
+        if let monthDirs = try? fm.contentsOfDirectory(at: textStoreDir, includingPropertiesForKeys: nil) {
+            for dir in monthDirs {
+                var isDir: ObjCBool = false
+                fm.fileExists(atPath: dir.path, isDirectory: &isDir)
+                if isDir.boolValue,
+                   let contents = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil),
+                   contents.isEmpty {
+                    emptiedDirs.append(dir)
+                }
+            }
+        }
+        for d in emptiedDirs { try? fm.removeItem(at: d) }
     }
 
     private func countHistoryOnDisk() -> (total: Int, recent: Int, old: Int) {
@@ -1072,16 +1289,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showAbout() {
         let alert = NSAlert()
-        alert.messageText = "ClipShot 1.0"
+        alert.messageText = "ClipShot 1.2"
         alert.informativeText = """
-        Guarda automáticamente cada screenshot en el portapapeles y mantiene un historial al que puedes volver.
+        Guarda automáticamente cada screenshot y, opcionalmente, cada texto que copias.
+        Mantiene un historial al que puedes volver con un solo clic.
 
         Cómo capturar:
           • Cmd+Shift+Ctrl+3/4 — directo al portapapeles
           • Cmd+Shift+3/4 — guarda en \(screenshotLocation.path)
+          • Cmd+C — guarda el texto en el historial (si está activado en Preferencias)
 
         Historial guardado en:
           \(storeDir.path)
+          \(textStoreDir.path)
 
         © 2026 Jean Carlos Morla Genao. Licencia MIT.
         Este software se distribuye "tal cual", sin garantías expresas o implícitas. El autor no se hace responsable de pérdida de datos o daños derivados del uso.
@@ -1110,17 +1330,108 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return area <= AppDelegate.maxPixelArea
     }
 
+    // Tope conservador para no llenar disco con un copy gigante (ej. log completo)
+    static let maxTextBytes: Int = 200_000
+
     func checkPasteboard() {
         let pb = NSPasteboard.general
         guard pb.changeCount != lastChangeCount else { return }
         lastChangeCount = pb.changeCount
-        guard let types = pb.types, types.contains(.tiff) || types.contains(.png) else { return }
-        guard let img = NSImage(pasteboard: pb) else { return }
-        guard imageIsWithinSafeBounds(img) else {
-            clog("Pasteboard image too large; ignoring: \(Int(img.size.width))x\(Int(img.size.height))")
+        guard let types = pb.types else { return }
+
+        if types.contains(.tiff) || types.contains(.png) {
+            guard let img = NSImage(pasteboard: pb) else { return }
+            guard imageIsWithinSafeBounds(img) else {
+                clog("Pasteboard image too large; ignoring: \(Int(img.size.width))x\(Int(img.size.height))")
+                return
+            }
+            saveScreenshot(image: img, showOverlay: true)
             return
         }
-        saveScreenshot(image: img, showOverlay: true)
+
+        guard Settings.saveTextHistory else { return }
+
+        // Respeta convención nspasteboard.com: apps marcan contenido sensible
+        // (contraseñas, datos de password managers) y debemos ignorarlos.
+        let concealed = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
+        let autoGen = NSPasteboard.PasteboardType("org.nspasteboard.AutoGeneratedType")
+        let transient = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
+        if types.contains(concealed) || types.contains(autoGen) || types.contains(transient) {
+            return
+        }
+
+        guard types.contains(.string) else { return }
+        guard let str = pb.string(forType: .string) else { return }
+        let trimmed = str.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 2 else { return }
+        let byteCount = trimmed.lengthOfBytes(using: .utf8)
+        guard byteCount > 0, byteCount <= AppDelegate.maxTextBytes else { return }
+        // Evita duplicado del último entry (copiar dos veces lo mismo)
+        if let last = textHistory.first, last.content == trimmed { return }
+
+        saveText(trimmed)
+    }
+
+    func saveText(_ text: String) {
+        let now = Date()
+        let id = UUID().uuidString
+        let monthFmt = DateFormatter()
+        monthFmt.locale = Locale(identifier: "es_ES")
+        monthFmt.dateFormat = "MMMM yyyy"
+        var monthName = monthFmt.string(from: now)
+        monthName = monthName.prefix(1).uppercased() + monthName.dropFirst()
+        let monthDir = textStoreDir.appendingPathComponent(monthName)
+        try? FileManager.default.createDirectory(at: monthDir, withIntermediateDirectories: true)
+
+        let nameFmt = DateFormatter()
+        nameFmt.locale = Locale(identifier: "es_ES")
+        nameFmt.dateFormat = "yyyy-MM-dd 'a las' HH-mm-ss"
+        let filename = "Texto \(nameFmt.string(from: now))_\(id.prefix(6)).txt"
+        let url = monthDir.appendingPathComponent(filename)
+
+        guard let data = text.data(using: .utf8) else { return }
+        do {
+            try data.write(to: url, options: [.atomic])
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        } catch {
+            clog("Failed to save text to \(url.path): \(error)")
+            return
+        }
+        let item = TextItem(id: String(id.prefix(6)), date: now, textPath: url)
+        textHistory.insert(item, at: 0)
+        while textHistory.count > maxTextHistory {
+            let removed = textHistory.removeLast()
+            try? FileManager.default.removeItem(at: removed.textPath)
+        }
+        rebuildMenu()
+        flashStatusIcon(symbol: "doc.on.clipboard.fill")
+    }
+
+    func loadTextHistory() {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(at: textStoreDir,
+                                               includingPropertiesForKeys: [.creationDateKey, .isRegularFileKey, .isSymbolicLinkKey],
+                                               options: [.skipsHiddenFiles]) else {
+            textHistory = []
+            return
+        }
+        var txts: [URL] = []
+        for case let url as URL in enumerator {
+            let v = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            guard v?.isRegularFile == true, v?.isSymbolicLink != true else { continue }
+            guard url.pathExtension.lowercased() == "txt" else { continue }
+            txts.append(url)
+        }
+        let sorted = txts.sorted { a, b in
+            let da = (try? a.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date.distantPast
+            let db = (try? b.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date.distantPast
+            return da > db
+        }
+        textHistory = sorted.prefix(maxTextHistory).map { url in
+            let date = (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date()
+            let id = url.deletingPathExtension().lastPathComponent
+            return TextItem(id: id, date: date, textPath: url)
+        }
     }
 
     func startFolderMonitor() {

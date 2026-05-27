@@ -16,13 +16,17 @@
 /* ===== Main menu (status bar dropdown) ===== */
 
 /* Disabled header row at the top of the status bar menu. */
-"menu.header.title" = "ClipShot — Screenshot History";
+"menu.header.title" = "ClipShot — History";
 
-/* Disabled placeholder row shown when there are no captures yet. */
-"menu.history.empty" = "No screenshots yet";
+/* Disabled placeholder row shown when there is no history yet (no captures and no
+   copied text). The menu shows captures and text interleaved in one ordered list. */
+"menu.history.empty" = "No history yet";
 
-/* Menu item: opens the Finder folder where the history is stored. */
-"menu.action.open_history_folder" = "Open History Folder";
+/* Menu item: opens the Finder folder where saved screenshots live. */
+"menu.action.open_history_folder" = "Open Screenshots Folder";
+
+/* Menu item: opens the Finder folder where saved copied-text files live. */
+"menu.action.open_text_folder" = "Open Text Folder";
 
 /* Menu item: prompts the user to clear the saved history. */
 "menu.action.clear_history" = "Clear History";
@@ -35,6 +39,10 @@
 
 /* Preferences submenu: toggles launch-at-login. */
 "menu.preferences.open_at_login" = "Open at Login";
+
+/* Preferences submenu: toggles saving copied clipboard text into history.
+   Off by default — privacy-first; the user opts in. */
+"menu.preferences.save_text" = "Save Copied Text";
 
 /* Preferences submenu: opens the system folder picker to pick a different
    screenshots folder. The ellipsis follows Apple HIG (action opens a dialog). */
@@ -82,12 +90,37 @@
 
 /* ----- Step 1: how saving works ----- */
 
-/* Step 1 title. */
 "welcome.step1.title" = "How saving works";
 
-/* Step 1 body: multi-paragraph explanation of the ~5s Apple thumbnail delay
-   and that ClipShot does not modify the system. Keep the paragraph breaks. */
-"welcome.step1.body" = "ClipShot saves your screenshots about 5 seconds after you take them, once Apple's thumbnail disappears.\n\nIt doesn't change anything in the system or alter your macOS settings. It simply watches the folder where Apple saves screenshots and adds each new one to your history and clipboard.\n\nThat brief wait is completely normal — it's just how macOS saves the screenshot.";
+"welcome.step1.intro" = "When you take a screenshot, macOS shows a thumbnail for about 5 seconds before saving the file. ClipShot adds it to your history as soon as it's saved. You have two options:";
+
+"welcome.step1.option1.title" = "✓ Easy option — do nothing (recommended)";
+"welcome.step1.option1.body" = "Take a screenshot, wait ~5 s for Apple's thumbnail to dismiss, and ClipShot adds it to your history automatically. No setup. Works right now.";
+
+"welcome.step1.option2.title" = "⚡ Advanced option — instant capture (optional)";
+"welcome.step1.option2.steps" = "If you want instant capture, turn off Apple's thumbnail. ClipShot CANNOT do this for you — it's a macOS setting you have to change yourself, just once:\n\n  1. Click the “Open Screenshot tool” button below.\n  2. A black toolbar appears at the bottom of your screen.\n  3. In that toolbar, click “Options”.\n  4. In the menu that opens, uncheck “Show Floating Thumbnail”.\n  5. Press Esc or close the toolbar. Done.\n\nAfter that, every screenshot saves instantly and copies to the clipboard with no delay.";
+
+"welcome.step1.option2.open_settings_button" = "Open Screenshot tool…";
+"welcome.step1.option2.short_body" = "We'll walk you through enabling instant capture, step by step. Takes about 20 seconds.";
+
+/* ---- Step 1 guided sub-flow ---- */
+"welcome.step1.guide.step_indicator" = "Step %1$d of %2$d";
+"welcome.step1.guide.back_to_selector" = "‹ Back";
+"welcome.step1.guide.next_button" = "Next";
+"welcome.step1.guide.done_button" = "Done! Continue";
+
+"welcome.step1.guide.sub1.title" = "Open Apple's Screenshot tool";
+"welcome.step1.guide.sub1.body" = "Click the button below. macOS's native screenshot tool will open and a black horizontal toolbar will appear at the bottom of your screen.";
+"welcome.step1.guide.sub1.button" = "Open Screenshot tool";
+
+"welcome.step1.guide.sub2.title" = "Click “Options” in the toolbar";
+"welcome.step1.guide.sub2.body" = "In the black toolbar that appeared at the bottom, find the “Options” button. It's between the capture buttons and the final “Capture” button. Click it to open the menu.";
+
+"welcome.step1.guide.sub3.title" = "Uncheck “Show Floating Thumbnail”";
+"welcome.step1.guide.sub3.body" = "In the menu that opened you'll see several settings. Look for the “Options” section and click on “Show Floating Thumbnail” to uncheck it. The checkmark on the left should disappear.";
+
+"welcome.step1.guide.sub4.title" = "All set — you have instant capture";
+"welcome.step1.guide.sub4.body" = "You can close Apple's toolbar with the Esc key. From now on, every screenshot you take with Cmd+Shift+4 will be saved instantly and copied to the clipboard with no wait.";
 
 
 /* ----- Step 2: folder picker ----- */
@@ -182,7 +215,7 @@
      %2$d — captures from the last 30 days
      %3$d — captures older than 30 days
    Keep the bullet character (•) and the line breaks. */
-"alert.clear_history.body.format" = "You have %1$d screenshots saved on disk in total:\n  • Last 30 days: %2$d\n  • Older: %3$d\n\nWhat would you like to delete?";
+"alert.clear_history.body.format" = "Screenshots saved: %1$d\n  • Last 30 days: %2$d\n  • Older: %3$d\n\nCopied text saved: %4$d\n  • Last 30 days: %5$d\n  • Older: %6$d\n\nWhat would you like to delete?";
 
 /* Destructive primary button: deletes every saved capture. */
 "alert.clear_history.button.delete_all" = "Delete All";
@@ -198,7 +231,7 @@
 
 /* Title of the "About ClipShot" alert. Keep the brand name; the version
    number is part of the string and can stay as-is across languages. */
-"about.title" = "ClipShot 2.0";
+"about.title" = "ClipShot 2.1";
 
 /* About-alert body. Format args, in order:
      %1$@ — full filesystem path of the user's screenshots folder
@@ -206,4 +239,4 @@
    Keep the keyboard-shortcut text (Cmd+Shift+Ctrl+3/4 etc.) and the bullet
    character (•). Do not translate "Cmd", "Shift", "Ctrl" — those are the
    localized macOS modifier names that users recognize in any language. */
-"about.body.format" = "Automatically saves every screenshot to the clipboard and keeps a history you can come back to.\n\nHow to capture:\n  • Cmd+Shift+Ctrl+3/4 — straight to the clipboard\n  • Cmd+Shift+3/4 — saves to %1$@\n\nHistory saved in:\n  %2$@\n\n© 2026 Jean Carlos Morla Genao. Licencia MIT.\nThis software is provided \"as is\", without warranty of any kind, express or implied. The author is not responsible for any data loss or damages resulting from its use.";
+"about.body.format" = "Automatically saves every screenshot and, if you turn it on, every text you copy. Keep a history you can come back to with a single click.\n\nHow to capture:\n  • Cmd+Shift+Ctrl+3/4 — straight to the clipboard\n  • Cmd+Shift+3/4 — saves to %1$@\n  • Cmd+C — saves the text into history (if enabled in Preferences)\n\nHistory saved in:\n  %2$@\n\n© 2026 Jean Carlos Morla Genao. MIT License.\nThis software is provided \"as is\", without warranty of any kind, express or implied. The author is not responsible for any data loss or damages resulting from its use.";

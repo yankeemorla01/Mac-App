@@ -9,9 +9,9 @@
     <key>CFBundleIdentifier</key>
     <string>com.josecasadogenao.clipshot</string>
     <key>CFBundleVersion</key>
-    <string>1.0</string>
+    <string>1.2</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>1.2</string>
     <key>CFBundleExecutable</key>
     <string>ClipShot</string>
     <key>CFBundleIconFile</key>
