@@ -2,6 +2,7 @@ import Cocoa
 import QuartzCore
 import ApplicationServices
 import ServiceManagement
+import Sparkle
 
 enum SavingMode: String {
     case appleNative = "apple"
@@ -717,6 +718,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let overlay = ThumbnailOverlay()
     var welcomeWC: WelcomeWindowController?
 
+    /// Sparkle auto-updater. `startingUpdater: true` makes Sparkle begin its
+    /// background check cadence using `SUScheduledCheckInterval` from Info.plist.
+    /// We retain this controller for the lifetime of the app — releasing it would
+    /// stop the background checks.
+    let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
+
     override init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         storeDir = appSupport.appendingPathComponent("ClipShot/history")
@@ -930,6 +941,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         textHistoryItem.target = self
         textHistoryItem.state = Settings.saveTextHistory ? .on : .off
         prefsMenu.addItem(textHistoryItem)
+        prefsMenu.addItem(.separator())
+
+        // Sparkle auto-update: the action selector lives on the updater controller
+        // itself, NOT on AppDelegate. Targeting the controller is what makes the
+        // "Check for Updates…" item enabled and clickable.
+        let checkUpdates = NSMenuItem(
+            title: "Buscar actualizaciones…",
+            action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+            keyEquivalent: ""
+        )
+        checkUpdates.target = updaterController
+        prefsMenu.addItem(checkUpdates)
         prefsMenu.addItem(.separator())
         let showIntro = NSMenuItem(title: "Ver bienvenida otra vez…",
                                      action: #selector(reopenWelcome), keyEquivalent: "")
@@ -1289,7 +1312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showAbout() {
         let alert = NSAlert()
-        alert.messageText = "ClipShot 1.2"
+        alert.messageText = "ClipShot 1.3"
         alert.informativeText = """
         Guarda automáticamente cada screenshot y, opcionalmente, cada texto que copias.
         Mantiene un historial al que puedes volver con un solo clic.

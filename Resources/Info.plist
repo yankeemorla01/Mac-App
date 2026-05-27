@@ -9,9 +9,9 @@
     <key>CFBundleIdentifier</key>
     <string>com.josecasadogenao.clipshot</string>
     <key>CFBundleVersion</key>
-    <string>1.2</string>
+    <string>1.3</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.2</string>
+    <string>1.3</string>
     <key>CFBundleExecutable</key>
     <string>ClipShot</string>
     <key>CFBundleIconFile</key>
@@ -40,5 +40,17 @@
     <string>ClipShot necesita acceso a Documentos para detectar screenshots guardados ahí.</string>
     <key>NSPicturesFolderUsageDescription</key>
     <string>ClipShot necesita acceso a Imágenes para detectar screenshots guardados ahí.</string>
+
+    <!-- Sparkle auto-update. The feed lives on GitHub Pages; if the URL is moved, update here. -->
+    <key>SUFeedURL</key>
+    <string>https://josegcasadogenao.github.io/clipshot/appcast.xml</string>
+    <!-- EdDSA public key matching the private key in the local keychain (sparkle_ed_secret). -->
+    <key>SUPublicEDKey</key>
+    <string>WEbBbBRnUX8PXRUzhk2OHG4JDbEJRJAfO539CPmTA7k=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <!-- 86400 seconds = once per day. -->
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
 </dict>
 </plist>

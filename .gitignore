@@ -4,3 +4,6 @@ scripts/render_icon
 .DS_Store
 *.swp
 ~/Library/Logs/ClipShot.log
+
+# Vendor SDK — Sparkle binary distribution. Re-fetch per developer machine.
+vendor/
