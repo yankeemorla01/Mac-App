@@ -2,6 +2,10 @@ import Cocoa
 import QuartzCore
 import ApplicationServices
 import ServiceManagement
+import Quartz   // Quick Look
+import Vision   // OCR
+import Carbon.HIToolbox  // global hotkey
+import StoreKit   // IAP para ClipShot Pro
 
 // NOTE: This is the App Store build of ClipShot.
 // All Mac App Store sandbox restrictions apply. The "instant" saving mode that
@@ -56,6 +60,70 @@ enum Settings {
         get { d.bool(forKey: kSaveText) }
         set { d.set(newValue, forKey: kSaveText) }
     }
+
+    /// IDs de items anclados (sobreviven el cap, en sección "Anclados" arriba).
+    private static let kPinned = "clipshot.pinnedHistoryIds"
+    static var pinnedHistoryIds: Set<String> {
+        get { Set(d.stringArray(forKey: kPinned) ?? []) }
+        set { d.set(Array(newValue), forKey: kPinned) }
+    }
+    static func isPinned(_ id: String) -> Bool { pinnedHistoryIds.contains(id) }
+    static func togglePinned(_ id: String) {
+        var s = pinnedHistoryIds
+        if s.contains(id) { s.remove(id) } else { s.insert(id) }
+        pinnedHistoryIds = s
+    }
+
+    /// Bundle IDs de apps donde NO debemos capturar texto (password managers, banca).
+    private static let kExcludedApps = "clipshot.excludedAppBundleIds"
+    static let defaultExcludedApps: [String] = [
+        "com.apple.keychainaccess",
+        "com.agilebits.onepassword7",
+        "com.agilebits.onepassword4",
+        "com.1password.1password",
+        "com.bitwarden.desktop",
+        "com.lastpass.LastPass",
+        "com.dashlane.dashlanephonefinal",
+    ]
+    static var excludedAppBundleIds: [String] {
+        get {
+            if let stored = d.stringArray(forKey: kExcludedApps) { return stored }
+            return defaultExcludedApps
+        }
+        set { d.set(newValue, forKey: kExcludedApps) }
+    }
+
+    /// Global hotkey (default ⌘⇧V).
+    private static let kHotkeyKey = "clipshot.globalHotkey.key"
+    private static let kHotkeyMods = "clipshot.globalHotkey.mods"
+    static var globalHotkey: (key: UInt32, mods: UInt32) {
+        get {
+            let k = d.object(forKey: kHotkeyKey) as? Int ?? Int(kVK_ANSI_V)
+            let m = d.object(forKey: kHotkeyMods) as? Int ?? (cmdKey | shiftKey)
+            return (UInt32(k), UInt32(m))
+        }
+        set {
+            d.set(Int(newValue.key), forKey: kHotkeyKey)
+            d.set(Int(newValue.mods), forKey: kHotkeyMods)
+        }
+    }
+
+    /// OCR opt-in (procesa cada captura con Apple Vision en background).
+    private static let kEnableOCR = "clipshot.enableOCR"
+    static var enableOCR: Bool {
+        get { d.bool(forKey: kEnableOCR) }
+        set { d.set(newValue, forKey: kEnableOCR) }
+    }
+
+    /// ClipShot Pro status — viene de StoreKit 2 (Transaction.currentEntitlements).
+    /// `PurchaseManager` mantiene este flag actualizado.
+    private static let kIsPro = "clipshot.isPro"
+    static var isPro: Bool {
+        get { d.bool(forKey: kIsPro) }
+        set { d.set(newValue, forKey: kIsPro) }
+    }
+    /// Product ID configurado en App Store Connect.
+    static let proProductID = "com.jcmorla.clipshot.pro"
 
     /// Security-scoped bookmark of the user-selected screenshot folder.
     /// Required because the sandbox does not let us read ~/Desktop without
@@ -1046,6 +1114,11 @@ struct HistoryItem {
     let date: Date
     let imagePath: URL
     var image: NSImage? { NSImage(contentsOf: imagePath) }
+    var isPinned: Bool { Settings.isPinned(id) }
+    var ocrText: String? {
+        let sidecar = imagePath.deletingPathExtension().appendingPathExtension("ocr.txt")
+        return try? String(contentsOf: sidecar, encoding: .utf8)
+    }
 }
 
 struct TextItem {
@@ -1053,14 +1126,21 @@ struct TextItem {
     let date: Date
     let textPath: URL
     var content: String? { try? String(contentsOf: textPath, encoding: .utf8) }
+    var isPinned: Bool { Settings.isPinned(id) }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem!
     var history: [HistoryItem] = []
     var textHistory: [TextItem] = []
-    let maxHistory = 30
-    let maxTextHistory = 30
+    let maxHistory = 500
+    let maxTextHistory = 500
+
+    /// History browser, color picker, hotkey config — ventanas on-demand.
+    var browserWC: HistoryBrowserWindowController?
+    var colorPickerWC: ColorPickerWindowController?
+    var hotkeyWC: HotkeySettingsWindowController?
+    var globalHotkey: GlobalHotkey?
     var lastChangeCount: Int = -1
     var pbTimer: Timer?
     let storeDir: URL
@@ -1092,6 +1172,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         startPasteboardMonitor()
         startFolderMonitor()
+        registerGlobalHotkey()
+        if #available(macOS 12.0, *) {
+            PurchaseManager.shared.start()
+            NotificationCenter.default.addObserver(forName: .clipShotProStatusChanged,
+                                                     object: nil, queue: .main) { [weak self] _ in
+                self?.rebuildMenu()
+            }
+        }
 
         if !Settings.hasSeenIntro {
             showWelcome()
@@ -1292,45 +1380,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(header)
         menu.addItem(.separator())
 
-        // Unified history list: screenshots and copied text interleaved by date,
-        // newest first. Screenshots use their real thumbnail; copied text is
-        // rendered into a small rounded card so the two types are visually
-        // distinguishable at a glance.
+        // Pinned section appears above regular history when there are pinned items.
+        let pinned = pinnedEntries()
+        if !pinned.isEmpty {
+            let pinHeaderTitle = NSLocalizedString("menu.section.pinned",
+                                                     comment: "Section header for pinned history entries.")
+            let pinHeader = NSMenuItem(title: pinHeaderTitle, action: nil, keyEquivalent: "")
+            pinHeader.isEnabled = false
+            menu.addItem(pinHeader)
+            for entry in pinned { addEntryMenuItem(entry, to: menu) }
+            menu.addItem(.separator())
+            let recentHeaderTitle = NSLocalizedString("menu.section.recent",
+                                                        comment: "Section header for recent (unpinned) history.")
+            let recentHeader = NSMenuItem(title: recentHeaderTitle, action: nil, keyEquivalent: "")
+            recentHeader.isEnabled = false
+            menu.addItem(recentHeader)
+        }
+
+        // Unified history list: screenshots and copied text interleaved by date.
         let merged = mergedHistoryEntries()
-        if merged.isEmpty {
+        if merged.isEmpty && pinned.isEmpty {
             let emptyTitle = NSLocalizedString(
                 "menu.history.empty",
-                comment: "Disabled placeholder shown in the menu when there is no history yet (no captures and no copied text)."
+                comment: "Disabled placeholder shown in the menu when there is no history yet."
             )
             let item = NSMenuItem(title: "  " + emptyTitle, action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
         } else {
-            for entry in merged {
-                switch entry {
-                case .image(let idx, let h):
-                    let item = NSMenuItem(title: "  " + formatDate(h.date),
-                                            action: #selector(copyHistoryItem(_:)), keyEquivalent: "")
-                    item.target = self
-                    item.tag = idx
-                    if let img = h.image {
-                        item.image = thumbnail(from: img, maxSize: NSSize(width: 140, height: 90))
-                    }
-                    menu.addItem(item)
-                case .text(let idx, let t):
-                    let body = textPreview(t.content ?? "", limit: 120)
-                    let item = NSMenuItem(title: "  " + formatDate(t.date),
-                                            action: #selector(copyTextHistoryItem(_:)), keyEquivalent: "")
-                    item.target = self
-                    item.tag = idx
-                    item.image = textCard(preview: body, size: NSSize(width: 140, height: 90))
-                    item.toolTip = t.content
-                    menu.addItem(item)
-                }
-            }
+            for entry in merged { addEntryMenuItem(entry, to: menu) }
         }
 
         menu.addItem(.separator())
+        let browseTitle = NSLocalizedString("menu.action.search_history",
+                                              comment: "Menu item that opens the searchable history browser.")
+        let browseItem = NSMenuItem(title: browseTitle,
+                                      action: #selector(openHistoryBrowser), keyEquivalent: "f")
+        browseItem.target = self
+        menu.addItem(browseItem)
+
         let openFolderTitle = NSLocalizedString(
             "menu.action.open_history_folder",
             comment: "Menu item that opens the saved-history folder in Finder."
@@ -1392,6 +1480,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         textHistoryItem.target = self
         textHistoryItem.state = Settings.saveTextHistory ? .on : .off
         prefsMenu.addItem(textHistoryItem)
+
+        let ocrTitle = Settings.isPro
+            ? NSLocalizedString("menu.preferences.ocr",
+                                  comment: "Preferences toggle for OCR text extraction.")
+            : NSLocalizedString("menu.preferences.ocr_pro",
+                                  comment: "Preferences toggle for OCR text extraction (Pro version).")
+        let ocrItem = NSMenuItem(title: ocrTitle, action: #selector(toggleOCRPref), keyEquivalent: "")
+        ocrItem.target = self
+        ocrItem.state = (Settings.enableOCR && Settings.isPro) ? .on : .off
+        prefsMenu.addItem(ocrItem)
+
+        let (hkKey, hkMods) = Settings.globalHotkey
+        let hkLabelFormat = NSLocalizedString("menu.preferences.global_hotkey",
+                                                comment: "Preferences entry showing the global hotkey, with the current binding as %@.")
+        let hkLabel = String(format: hkLabelFormat, HotkeyRecorderView.describe(key: hkKey, mods: hkMods))
+        let hkItem = NSMenuItem(title: hkLabel,
+                                  action: #selector(openHotkeySettings), keyEquivalent: "")
+        hkItem.target = self
+        prefsMenu.addItem(hkItem)
         prefsMenu.addItem(.separator())
 
         let changeFolderTitle = NSLocalizedString(
@@ -1414,6 +1521,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         prefsMenu.addItem(showIntro)
         prefs.submenu = prefsMenu
         menu.addItem(prefs)
+
+        let proLabel = Settings.isPro
+            ? NSLocalizedString("menu.pro.active", comment: "Pro is active")
+            : NSLocalizedString("menu.pro.unlock", comment: "Unlock Pro")
+        let proItem = NSMenuItem(title: proLabel, action: #selector(openPaywall), keyEquivalent: "")
+        proItem.target = self
+        menu.addItem(proItem)
 
         let aboutTitle = NSLocalizedString(
             "menu.action.about",
@@ -1471,15 +1585,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .text(_, let t): return t.date
             }
         }
+        var isPinned: Bool {
+            switch self {
+            case .image(_, let h): return h.isPinned
+            case .text(_, let t): return t.isPinned
+            }
+        }
+        var id: String {
+            switch self {
+            case .image(_, let h): return h.id
+            case .text(_, let t): return t.id
+            }
+        }
     }
 
+    /// Devuelve los items no anclados, ordenados por fecha. Los anclados
+    /// se muestran arriba en su propia sección via pinnedEntries().
     func mergedHistoryEntries(limit: Int = 20) -> [MergedEntry] {
-        var entries: [MergedEntry] = history.enumerated().map { .image($0.offset, $0.element) }
-        if Settings.saveTextHistory {
-            entries.append(contentsOf: textHistory.enumerated().map { .text($0.offset, $0.element) })
-        }
-        entries.sort { $0.date > $1.date }
-        return Array(entries.prefix(limit))
+        Array(allMergedEntries().filter { !$0.isPinned }.prefix(limit))
     }
 
     /// Renders a small rounded "card" image for a copied-text entry so it can
@@ -1586,6 +1709,246 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
             button.image = original
         }
+    }
+
+    // MARK: - Pin + submenu actions (ported from 1.5)
+
+    func allMergedEntries() -> [MergedEntry] {
+        var entries: [MergedEntry] = history.enumerated().map { .image($0.offset, $0.element) }
+        if Settings.saveTextHistory {
+            entries.append(contentsOf: textHistory.enumerated().map { .text($0.offset, $0.element) })
+        }
+        entries.sort { $0.date > $1.date }
+        return entries
+    }
+
+    func pinnedEntries() -> [MergedEntry] {
+        allMergedEntries().filter { $0.isPinned }
+    }
+
+    func addEntryMenuItem(_ entry: MergedEntry, to menu: NSMenu) {
+        switch entry {
+        case .image(let idx, let h):
+            let item = NSMenuItem(title: "  " + formatDate(h.date),
+                                    action: #selector(copyHistoryItem(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = idx
+            if let img = h.image {
+                item.image = thumbnail(from: img, maxSize: NSSize(width: 140, height: 90))
+            }
+            item.submenu = buildEntrySubmenu(id: h.id, fileURL: h.imagePath, isImage: true)
+            menu.addItem(item)
+        case .text(let idx, let t):
+            let body = textPreview(t.content ?? "", limit: 120)
+            let item = NSMenuItem(title: "  " + formatDate(t.date),
+                                    action: #selector(copyTextHistoryItem(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = idx
+            item.image = textCard(preview: body, size: NSSize(width: 140, height: 90))
+            item.toolTip = t.content
+            item.submenu = buildEntrySubmenu(id: t.id, fileURL: t.textPath, isImage: false)
+            menu.addItem(item)
+        }
+    }
+
+    func buildEntrySubmenu(id: String, fileURL: URL, isImage: Bool) -> NSMenu {
+        let sub = NSMenu()
+        sub.autoenablesItems = false
+
+        let pinTitle = Settings.isPinned(id)
+            ? NSLocalizedString("menu.action.unpin", comment: "Unpin a history entry")
+            : NSLocalizedString("menu.action.pin", comment: "Pin a history entry")
+        let pinItem = NSMenuItem(title: pinTitle, action: #selector(togglePinEntry(_:)), keyEquivalent: "")
+        pinItem.target = self
+        pinItem.representedObject = id
+        sub.addItem(pinItem)
+
+        if isImage {
+            let sidecar = fileURL.deletingPathExtension().appendingPathExtension("ocr.txt")
+            if FileManager.default.fileExists(atPath: sidecar.path) {
+                let ocrTitle = NSLocalizedString("menu.action.copy_ocr_text",
+                                                   comment: "Copy OCR-extracted text from an image")
+                let ocrItem = NSMenuItem(title: ocrTitle,
+                                           action: #selector(copyOCRTextFromImage(_:)), keyEquivalent: "")
+                ocrItem.target = self
+                ocrItem.representedObject = fileURL
+                sub.addItem(ocrItem)
+            }
+            let pickerTitle = Settings.isPro
+                ? NSLocalizedString("menu.action.color_picker",
+                                      comment: "Open color picker on a captured image")
+                : NSLocalizedString("menu.action.color_picker_pro",
+                                      comment: "Open color picker (Pro version)")
+            let pickerItem = NSMenuItem(title: pickerTitle,
+                                          action: #selector(openColorPicker(_:)), keyEquivalent: "")
+            pickerItem.target = self
+            pickerItem.representedObject = fileURL
+            sub.addItem(pickerItem)
+        }
+
+        sub.addItem(.separator())
+
+        let revealTitle = NSLocalizedString("menu.action.reveal_in_finder",
+                                              comment: "Reveal a saved item in Finder")
+        let revealItem = NSMenuItem(title: revealTitle, action: #selector(revealEntry(_:)), keyEquivalent: "")
+        revealItem.target = self
+        revealItem.representedObject = fileURL
+        sub.addItem(revealItem)
+
+        let deleteTitle = NSLocalizedString("menu.action.delete",
+                                              comment: "Delete a single history entry")
+        let deleteItem = NSMenuItem(title: deleteTitle, action: #selector(deleteEntry(_:)), keyEquivalent: "")
+        deleteItem.target = self
+        deleteItem.representedObject = ["id": id, "fileURL": fileURL, "isImage": isImage] as [String: Any]
+        sub.addItem(deleteItem)
+
+        return sub
+    }
+
+    @objc func togglePinEntry(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        Settings.togglePinned(id)
+        rebuildMenu()
+        RunLoop.main.perform(inModes: [.common]) { [weak self] in
+            self?.statusItem.button?.performClick(nil)
+        }
+    }
+
+    @objc func revealEntry(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    @objc func deleteEntry(_ sender: NSMenuItem) {
+        guard let info = sender.representedObject as? [String: Any],
+              let url = info["fileURL"] as? URL,
+              let id = info["id"] as? String,
+              let isImage = info["isImage"] as? Bool else { return }
+        try? FileManager.default.removeItem(at: url)
+        if isImage {
+            let sidecar = url.deletingPathExtension().appendingPathExtension("ocr.txt")
+            try? FileManager.default.removeItem(at: sidecar)
+        }
+        if Settings.isPinned(id) { Settings.togglePinned(id) }
+        if isImage { loadHistory() } else { loadTextHistory() }
+        rebuildMenu()
+    }
+
+    @objc func copyOCRTextFromImage(_ sender: NSMenuItem) {
+        guard let imageURL = sender.representedObject as? URL else { return }
+        let sidecar = imageURL.deletingPathExtension().appendingPathExtension("ocr.txt")
+        guard let text = try? String(contentsOf: sidecar, encoding: .utf8) else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(text, forType: .string)
+        lastChangeCount = pb.changeCount
+        flashStatusIcon(symbol: "text.viewfinder")
+    }
+
+    @objc func openColorPicker(_ sender: NSMenuItem) {
+        guard Settings.isPro else {
+            if #available(macOS 12.0, *) { PaywallWindowController.presentModal() }
+            return
+        }
+        guard let imageURL = sender.representedObject as? URL else { return }
+        colorPickerWC = ColorPickerWindowController(imageURL: imageURL)
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        colorPickerWC?.showWindow(nil)
+        colorPickerWC?.window?.makeKeyAndOrderFront(nil)
+    }
+
+    @objc func openHistoryBrowser() {
+        if browserWC == nil {
+            browserWC = HistoryBrowserWindowController(owner: self)
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification,
+                                                     object: browserWC?.window, queue: .main) { [weak self] _ in
+                NSApp.setActivationPolicy(.accessory)
+                self?.browserWC = nil
+            }
+        }
+        browserWC?.reloadFromOwner()
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        browserWC?.showWindow(nil)
+        browserWC?.window?.makeKeyAndOrderFront(nil)
+    }
+
+    @objc func openHotkeySettings() {
+        if hotkeyWC == nil {
+            hotkeyWC = HotkeySettingsWindowController(owner: self)
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification,
+                                                     object: hotkeyWC?.window, queue: .main) { [weak self] _ in
+                NSApp.setActivationPolicy(.accessory)
+                self?.hotkeyWC = nil
+                self?.rebuildMenu()
+            }
+        }
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        hotkeyWC?.showWindow(nil)
+        hotkeyWC?.window?.makeKeyAndOrderFront(nil)
+    }
+
+    @objc func toggleOCRPref() {
+        guard Settings.isPro else {
+            if #available(macOS 12.0, *) { PaywallWindowController.presentModal() }
+            return
+        }
+        Settings.enableOCR.toggle()
+        rebuildMenu()
+    }
+
+    @objc func openPaywall() {
+        if #available(macOS 12.0, *) {
+            PaywallWindowController.presentModal()
+        }
+    }
+
+    func registerGlobalHotkey() {
+        let (key, mods) = Settings.globalHotkey
+        globalHotkey = GlobalHotkey { [weak self] in
+            self?.openHistoryBrowser()
+        }
+        globalHotkey?.register(keyCode: key, modifiers: mods)
+    }
+
+    /// Extrae el sufijo de 6 chars del filename (después del último `_`).
+    /// Es el ID estable que se usa para anclar entre runs.
+    func extractId(from url: URL) -> String {
+        let stem = url.deletingPathExtension().lastPathComponent
+        if let u = stem.lastIndex(of: "_") {
+            return String(stem[stem.index(after: u)...])
+        }
+        return stem
+    }
+
+    /// Corre Vision para extraer texto en background. Guarda el resultado como
+    /// sidecar `<file>.ocr.txt` y refresca el menú al completar.
+    func runOCRIfEnabled(imagePath: URL, nsImage: NSImage) {
+        guard Settings.enableOCR else { return }
+        guard let cg = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let req = VNRecognizeTextRequest { request, _ in
+                let lines = (request.results as? [VNRecognizedTextObservation] ?? [])
+                    .compactMap { $0.topCandidates(1).first?.string }
+                let combined = lines.joined(separator: "\n")
+                guard !combined.isEmpty else { return }
+                let sidecar = imagePath.deletingPathExtension().appendingPathExtension("ocr.txt")
+                try? combined.data(using: .utf8)?.write(to: sidecar, options: [.atomic])
+                try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: sidecar.path)
+                DispatchQueue.main.async { self?.rebuildMenu() }
+            }
+            req.recognitionLevel = .accurate
+            req.usesLanguageCorrection = true
+            req.recognitionLanguages = ["es-ES", "en-US"]
+            let handler = VNImageRequestHandler(cgImage: cg, options: [:])
+            try? handler.perform([req])
+        }
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        // No-op por ahora — el rebuildMenu se hace al cambiar estado de pin/OCR.
     }
 
     @objc func openHistoryFolder() {
@@ -1838,6 +2201,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         guard Settings.saveTextHistory else { return }
 
+        // Apps explícitamente excluidas (password managers, banca, etc.).
+        if let frontApp = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+           Settings.excludedAppBundleIds.contains(frontApp) {
+            return
+        }
+
         // Respect the nspasteboard.com convention: password managers and other
         // apps tag sensitive content with these types so clipboard managers can
         // skip it. We honor all three (concealed / auto-generated / transient).
@@ -1891,12 +2260,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let item = TextItem(id: String(id.prefix(6)), date: now, textPath: url)
         textHistory.insert(item, at: 0)
-        while textHistory.count > maxTextHistory {
-            let removed = textHistory.removeLast()
-            try? FileManager.default.removeItem(at: removed.textPath)
-        }
+        pruneTextHistory()
         rebuildMenu()
         flashStatusIcon(symbol: "doc.on.clipboard.fill")
+    }
+
+    private func pruneTextHistory() {
+        var unpinnedCount = textHistory.filter { !$0.isPinned }.count
+        var idx = textHistory.count - 1
+        while unpinnedCount > maxTextHistory && idx >= 0 {
+            if !textHistory[idx].isPinned {
+                let removed = textHistory.remove(at: idx)
+                try? FileManager.default.removeItem(at: removed.textPath)
+                unpinnedCount -= 1
+            }
+            idx -= 1
+        }
     }
 
     func loadTextHistory() {
@@ -1919,11 +2298,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let db = (try? b.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date.distantPast
             return da > db
         }
-        textHistory = sorted.prefix(maxTextHistory).map { url in
+        var loaded: [TextItem] = []
+        var unpinnedTaken = 0
+        for url in sorted {
             let date = (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date()
-            let id = url.deletingPathExtension().lastPathComponent
-            return TextItem(id: id, date: date, textPath: url)
+            let id = extractId(from: url)
+            let item = TextItem(id: id, date: date, textPath: url)
+            if item.isPinned {
+                loaded.append(item)
+            } else if unpinnedTaken < maxTextHistory {
+                loaded.append(item)
+                unpinnedTaken += 1
+            }
         }
+        textHistory = loaded
     }
 
     // MARK: Folder watching (sandbox-safe, no Timer fallback)
@@ -2077,14 +2465,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let item = HistoryItem(id: String(id.prefix(6)), date: Date(), imagePath: url)
         history.insert(item, at: 0)
-        while history.count > maxHistory {
-            let removed = history.removeLast()
-            try? FileManager.default.removeItem(at: removed.imagePath)
-        }
+        pruneHistory()
         rebuildMenu()
         flashStatusIcon(symbol: "camera.fill")
         if showOverlay && Settings.showOverlay {
             overlay.show(image: image, fileURL: url)
+        }
+        runOCRIfEnabled(imagePath: url, nsImage: image)
+    }
+
+    private func pruneHistory() {
+        var unpinnedCount = history.filter { !$0.isPinned }.count
+        var idx = history.count - 1
+        while unpinnedCount > maxHistory && idx >= 0 {
+            if !history[idx].isPinned {
+                let removed = history.remove(at: idx)
+                try? FileManager.default.removeItem(at: removed.imagePath)
+                let sidecar = removed.imagePath.deletingPathExtension().appendingPathExtension("ocr.txt")
+                try? FileManager.default.removeItem(at: sidecar)
+                unpinnedCount -= 1
+            }
+            idx -= 1
         }
     }
 
@@ -2108,11 +2509,931 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let db = (try? b.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date.distantPast
             return da > db
         }
-        history = sorted.prefix(maxHistory).map { url in
+        var loaded: [HistoryItem] = []
+        var unpinnedTaken = 0
+        for url in sorted {
             let date = (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date()
-            let id = url.deletingPathExtension().lastPathComponent
-            return HistoryItem(id: id, date: date, imagePath: url)
+            let id = extractId(from: url)
+            let item = HistoryItem(id: id, date: date, imagePath: url)
+            if item.isPinned {
+                loaded.append(item)
+            } else if unpinnedTaken < maxHistory {
+                loaded.append(item)
+                unpinnedTaken += 1
+            }
         }
+        history = loaded
+    }
+}
+
+// MARK: - StoreKit 2 (In-App Purchase para ClipShot Pro)
+//
+// API moderna de StoreKit 2 (macOS 12+). No requiere callbacks ni delegates —
+// todo es async/await. Maneja: fetch del producto desde App Store Connect,
+// purchase, restore, transaction listener para revocar entitlement si Apple
+// detecta refund.
+@available(macOS 12.0, *)
+final class PurchaseManager {
+    static let shared = PurchaseManager()
+
+    private(set) var product: Product?
+    private var updatesTask: Task<Void, Never>?
+
+    /// Arranca el listener de transacciones en background. Llamar en
+    /// applicationDidFinishLaunching.
+    func start() {
+        updatesTask = Task.detached { [weak self] in
+            for await update in Transaction.updates {
+                if case .verified(let transaction) = update {
+                    await self?.handleTransaction(transaction)
+                    await transaction.finish()
+                }
+            }
+        }
+        Task { await refreshProduct() }
+        Task { await syncEntitlements() }
+    }
+
+    deinit { updatesTask?.cancel() }
+
+    func refreshProduct() async {
+        do {
+            let products = try await Product.products(for: [Settings.proProductID])
+            self.product = products.first
+        } catch {
+            clog("StoreKit: error fetching product: \(error)")
+        }
+    }
+
+    /// Dispara la compra. Devuelve true si fue exitosa.
+    @discardableResult
+    func purchase() async -> Bool {
+        guard let product = self.product else { return false }
+        do {
+            let result = try await product.purchase()
+            switch result {
+            case .success(let verification):
+                if case .verified(let transaction) = verification {
+                    await handleTransaction(transaction)
+                    await transaction.finish()
+                    return true
+                }
+                return false
+            case .userCancelled, .pending:
+                return false
+            @unknown default:
+                return false
+            }
+        } catch {
+            clog("StoreKit purchase error: \(error)")
+            return false
+        }
+    }
+
+    /// Restaura compras (caso de re-instalación o cambio de Mac).
+    func restore() async {
+        try? await AppStore.sync()
+        await syncEntitlements()
+    }
+
+    /// Sincroniza el flag isPro contra currentEntitlements. Si el user ya compró
+    /// (en este Mac o en otro con el mismo Apple ID), marca isPro=true.
+    func syncEntitlements() async {
+        var hasPro = false
+        for await result in Transaction.currentEntitlements {
+            if case .verified(let transaction) = result,
+               transaction.productID == Settings.proProductID,
+               transaction.revocationDate == nil {
+                hasPro = true
+            }
+        }
+        await MainActor.run {
+            Settings.isPro = hasPro
+            NotificationCenter.default.post(name: .clipShotProStatusChanged, object: nil)
+        }
+    }
+
+    private func handleTransaction(_ transaction: Transaction) async {
+        guard transaction.productID == Settings.proProductID else { return }
+        await MainActor.run {
+            Settings.isPro = transaction.revocationDate == nil
+            NotificationCenter.default.post(name: .clipShotProStatusChanged, object: nil)
+        }
+    }
+}
+
+extension Notification.Name {
+    static let clipShotProStatusChanged = Notification.Name("clipshot.proStatusChanged")
+}
+
+// MARK: - Paywall Window (App Store version)
+@available(macOS 12.0, *)
+final class PaywallWindowController: NSWindowController {
+    static func presentModal() {
+        let wc = PaywallWindowController()
+        wc.showWindow(nil)
+        wc.window?.makeKeyAndOrderFront(nil)
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    convenience init() {
+        let w = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 540),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        w.title = "ClipShot Pro"
+        w.center()
+        self.init(window: w)
+        buildContent()
+        // Refresh price cuando el producto carga
+        Task { @MainActor in
+            await PurchaseManager.shared.refreshProduct()
+            self.refreshPriceLabel()
+        }
+    }
+
+    private var priceLabel: NSTextField?
+    private var statusLabel: NSTextField?
+
+    private func buildContent() {
+        guard let cv = window?.contentView else { return }
+        cv.wantsLayer = true
+
+        let icon = NSImageView()
+        icon.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil)
+        icon.symbolConfiguration = .init(pointSize: 48, weight: .regular)
+        icon.contentTintColor = .systemBlue
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(icon)
+
+        let title = NSTextField(labelWithString: "ClipShot Pro")
+        title.font = .systemFont(ofSize: 28, weight: .bold)
+        title.alignment = .center
+        title.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(title)
+
+        let subtitle = NSTextField(labelWithString: NSLocalizedString("paywall.subtitle",
+                                                                        comment: "Paywall subtitle"))
+        subtitle.font = .systemFont(ofSize: 14)
+        subtitle.textColor = .secondaryLabelColor
+        subtitle.alignment = .center
+        subtitle.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(subtitle)
+
+        let features = makeFeatureList()
+        features.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(features)
+
+        let p = NSTextField(labelWithString: "—")
+        p.font = .systemFont(ofSize: 13, weight: .semibold)
+        p.alignment = .center
+        p.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(p)
+        self.priceLabel = p
+
+        let buyButton = NSButton(title: NSLocalizedString("paywall.button.buy",
+                                                            comment: "Buy button"),
+                                  target: self, action: #selector(buyPro))
+        buyButton.bezelStyle = .rounded
+        buyButton.keyEquivalent = "\r"
+        buyButton.controlSize = .large
+        buyButton.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(buyButton)
+
+        let restoreButton = NSButton(title: NSLocalizedString("paywall.button.restore",
+                                                                 comment: "Restore purchases button"),
+                                       target: self, action: #selector(restoreProAction))
+        restoreButton.bezelStyle = .accessoryBarAction
+        restoreButton.isBordered = false
+        restoreButton.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(restoreButton)
+
+        let s = NSTextField(labelWithString: "")
+        s.font = .systemFont(ofSize: 11)
+        s.textColor = .tertiaryLabelColor
+        s.alignment = .center
+        s.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(s)
+        self.statusLabel = s
+
+        NSLayoutConstraint.activate([
+            icon.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
+            icon.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 56),
+            icon.heightAnchor.constraint(equalToConstant: 56),
+            title.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 8),
+            title.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+            subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 4),
+            subtitle.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 24),
+            subtitle.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -24),
+            features.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 20),
+            features.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 40),
+            features.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -40),
+            p.topAnchor.constraint(equalTo: features.bottomAnchor, constant: 16),
+            p.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+            buyButton.topAnchor.constraint(equalTo: p.bottomAnchor, constant: 12),
+            buyButton.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+            buyButton.widthAnchor.constraint(equalToConstant: 220),
+            restoreButton.topAnchor.constraint(equalTo: buyButton.bottomAnchor, constant: 8),
+            restoreButton.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+            s.topAnchor.constraint(equalTo: restoreButton.bottomAnchor, constant: 4),
+            s.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+            s.bottomAnchor.constraint(lessThanOrEqualTo: cv.bottomAnchor, constant: -16),
+        ])
+    }
+
+    private func makeFeatureList() -> NSStackView {
+        let items: [(String, String)] = [
+            ("doc.text.viewfinder",
+             NSLocalizedString("paywall.feature.ocr", comment: "Paywall feature OCR")),
+            ("infinity",
+             NSLocalizedString("paywall.feature.unlimited", comment: "Paywall feature unlimited history")),
+            ("eyedropper",
+             NSLocalizedString("paywall.feature.color_picker", comment: "Paywall feature color picker")),
+            ("heart.fill",
+             NSLocalizedString("paywall.feature.support", comment: "Paywall feature supports dev")),
+        ]
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
+        for (sym, text) in items {
+            let row = NSStackView()
+            row.orientation = .horizontal
+            row.alignment = .centerY
+            row.spacing = 12
+            let img = NSImageView()
+            img.image = NSImage(systemSymbolName: sym, accessibilityDescription: nil)
+            img.symbolConfiguration = .init(pointSize: 16, weight: .medium)
+            img.contentTintColor = .systemBlue
+            img.translatesAutoresizingMaskIntoConstraints = false
+            img.widthAnchor.constraint(equalToConstant: 22).isActive = true
+            let label = NSTextField(labelWithString: text)
+            label.font = .systemFont(ofSize: 13)
+            row.addArrangedSubview(img)
+            row.addArrangedSubview(label)
+            stack.addArrangedSubview(row)
+        }
+        return stack
+    }
+
+    private func refreshPriceLabel() {
+        guard let product = PurchaseManager.shared.product else {
+            priceLabel?.stringValue = NSLocalizedString("paywall.price.unavailable",
+                                                          comment: "When product is not yet loaded")
+            return
+        }
+        let priceFormat = NSLocalizedString("paywall.price.format",
+                                              comment: "Pro one-time pricing format with %@ = displayPrice")
+        priceLabel?.stringValue = String(format: priceFormat, product.displayPrice)
+    }
+
+    @objc private func buyPro() {
+        statusLabel?.stringValue = NSLocalizedString("paywall.status.purchasing",
+                                                       comment: "Status: purchasing")
+        Task { @MainActor in
+            let ok = await PurchaseManager.shared.purchase()
+            if ok {
+                statusLabel?.stringValue = NSLocalizedString("paywall.status.success",
+                                                               comment: "Status: success")
+                window?.close()
+            } else {
+                statusLabel?.stringValue = NSLocalizedString("paywall.status.cancelled",
+                                                               comment: "Status: cancelled")
+            }
+        }
+    }
+
+    @objc private func restoreProAction() {
+        statusLabel?.stringValue = NSLocalizedString("paywall.status.restoring",
+                                                       comment: "Status: restoring purchases")
+        Task { @MainActor in
+            await PurchaseManager.shared.restore()
+            if Settings.isPro {
+                statusLabel?.stringValue = NSLocalizedString("paywall.status.restored",
+                                                               comment: "Status: restored")
+                window?.close()
+            } else {
+                statusLabel?.stringValue = NSLocalizedString("paywall.status.no_purchase",
+                                                               comment: "Status: no purchase found")
+            }
+        }
+    }
+}
+
+// MARK: - Global Hotkey (Carbon)
+final class GlobalHotkey {
+    private var hotKeyRef: EventHotKeyRef?
+    private var eventHandler: EventHandlerRef?
+    private let onTrigger: () -> Void
+    private static var instances: [UInt32: GlobalHotkey] = [:]
+    private static var nextID: UInt32 = 1
+
+    init(onTrigger: @escaping () -> Void) { self.onTrigger = onTrigger }
+
+    func register(keyCode: UInt32, modifiers: UInt32) {
+        unregister()
+        let id = GlobalHotkey.nextID
+        GlobalHotkey.nextID += 1
+        GlobalHotkey.instances[id] = self
+        let hotKeyID = EventHotKeyID(signature: OSType(0x434C5350), id: id)
+        var ref: EventHotKeyRef?
+        RegisterEventHotKey(keyCode, modifiers, hotKeyID, GetApplicationEventTarget(), 0, &ref)
+        hotKeyRef = ref
+        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
+                                   eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(GetApplicationEventTarget(),
+                              { (_, event, _) -> OSStatus in
+            var receivedID = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject),
+                                EventParamType(typeEventHotKeyID), nil,
+                                MemoryLayout<EventHotKeyID>.size, nil, &receivedID)
+            if let inst = GlobalHotkey.instances[receivedID.id] { inst.onTrigger() }
+            return noErr
+        }, 1, &spec, nil, &eventHandler)
+    }
+
+    func unregister() {
+        if let ref = hotKeyRef { UnregisterEventHotKey(ref); hotKeyRef = nil }
+        if let h = eventHandler { RemoveEventHandler(h); eventHandler = nil }
+    }
+    deinit { unregister() }
+}
+
+// MARK: - History Browser
+
+final class HistoryBrowserWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSWindowDelegate {
+    weak var ownerDelegate: AppDelegate?
+    private var searchField: NSSearchField!
+    private var tableView: NSTableView!
+    private var allEntries: [AppDelegate.MergedEntry] = []
+    private var filteredEntries: [AppDelegate.MergedEntry] = []
+
+    init(owner: AppDelegate) {
+        self.ownerDelegate = owner
+        let w = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 600),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered, defer: false
+        )
+        w.title = NSLocalizedString("browser.window.title", comment: "Search-in-history window title")
+        w.minSize = NSSize(width: 380, height: 360)
+        w.center()
+        super.init(window: w)
+        w.delegate = self
+        setupUI()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func setupUI() {
+        guard let cv = window?.contentView else { return }
+        searchField = NSSearchField()
+        searchField.placeholderString = NSLocalizedString("browser.search.placeholder",
+                                                            comment: "Placeholder of the search field in the history browser.")
+        searchField.delegate = self
+        searchField.sendsSearchStringImmediately = true
+        searchField.sendsWholeSearchString = false
+        cv.addSubview(searchField)
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.borderType = .noBorder
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(scroll)
+
+        tableView = NSTableView()
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.rowHeight = 72
+        tableView.headerView = nil
+        tableView.intercellSpacing = NSSize(width: 0, height: 4)
+        tableView.style = .inset
+        tableView.allowsMultipleSelection = false
+        tableView.target = self
+        tableView.doubleAction = #selector(rowDoubleClicked)
+
+        let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("item"))
+        col.resizingMask = [.autoresizingMask]
+        col.width = 500
+        tableView.addTableColumn(col)
+        scroll.documentView = tableView
+
+        NSLayoutConstraint.activate([
+            searchField.topAnchor.constraint(equalTo: cv.topAnchor, constant: 12),
+            searchField.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 12),
+            searchField.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -12),
+            scroll.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
+            scroll.leadingAnchor.constraint(equalTo: cv.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: cv.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: cv.bottomAnchor),
+        ])
+    }
+
+    func reloadFromOwner() {
+        allEntries = ownerDelegate?.allMergedEntries() ?? []
+        applyFilter()
+    }
+
+    private func applyFilter() {
+        let q = searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if q.isEmpty {
+            filteredEntries = allEntries
+        } else {
+            filteredEntries = allEntries.filter { entry in
+                let dateStr = ownerDelegate?.formatDate(entry.date).lowercased() ?? ""
+                if dateStr.contains(q) { return true }
+                switch entry {
+                case .image(_, let h): return (h.ocrText?.lowercased().contains(q)) ?? false
+                case .text(_, let t): return (t.content?.lowercased().contains(q)) ?? false
+                }
+            }
+        }
+        tableView.reloadData()
+        if !filteredEntries.isEmpty {
+            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        }
+    }
+
+    func controlTextDidChange(_ obj: Notification) { applyFilter() }
+
+    func numberOfRows(in tableView: NSTableView) -> Int { filteredEntries.count }
+    func tableView(_ tv: NSTableView, viewFor col: NSTableColumn?, row: Int) -> NSView? {
+        let cell = HistoryBrowserCell()
+        cell.configure(entry: filteredEntries[row], owner: ownerDelegate)
+        return cell
+    }
+
+    @objc private func rowDoubleClicked() { copySelectedAndClose(textOnly: false) }
+
+    private func copySelectedAndClose(textOnly: Bool) {
+        let row = tableView.selectedRow
+        guard row >= 0 && row < filteredEntries.count else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        switch filteredEntries[row] {
+        case .image(_, let h):
+            if textOnly, let ocr = h.ocrText { pb.setString(ocr, forType: .string) }
+            else if let img = h.image { pb.writeObjects([img]) }
+        case .text(_, let t):
+            if let text = t.content { pb.setString(text, forType: .string) }
+        }
+        ownerDelegate?.lastChangeCount = pb.changeCount
+        window?.close()
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        window?.makeFirstResponder(searchField)
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        switch commandSelector {
+        case #selector(NSResponder.moveDown(_:)): moveSelection(by: +1); return true
+        case #selector(NSResponder.moveUp(_:)): moveSelection(by: -1); return true
+        case #selector(NSResponder.insertNewline(_:)): copySelectedAndClose(textOnly: false); return true
+        case #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)): copySelectedAndClose(textOnly: true); return true
+        case #selector(NSResponder.cancelOperation(_:)): window?.close(); return true
+        default: return false
+        }
+    }
+
+    private func moveSelection(by delta: Int) {
+        guard !filteredEntries.isEmpty else { return }
+        var next = tableView.selectedRow + delta
+        next = max(0, min(filteredEntries.count - 1, next))
+        tableView.selectRowIndexes(IndexSet(integer: next), byExtendingSelection: false)
+        tableView.scrollRowToVisible(next)
+    }
+}
+
+extension HistoryBrowserWindowController: QLPreviewPanelDataSource, QLPreviewPanelDelegate {
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = self; panel.delegate = self
+    }
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = nil; panel.delegate = nil
+    }
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+        let row = tableView?.selectedRow ?? -1
+        return (row >= 0 && row < filteredEntries.count) ? 1 : 0
+    }
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
+        let row = tableView.selectedRow
+        guard row >= 0 && row < filteredEntries.count else { return nil }
+        switch filteredEntries[row] {
+        case .image(_, let h): return h.imagePath as NSURL
+        case .text(_, let t): return t.textPath as NSURL
+        }
+    }
+}
+
+final class HistoryBrowserCell: NSTableCellView {
+    private let preview = NSImageView()
+    private let dateLabel = NSTextField(labelWithString: "")
+    private let bodyLabel = NSTextField(labelWithString: "")
+    private let pinIndicator = NSImageView()
+
+    init() {
+        super.init(frame: NSRect(x: 0, y: 0, width: 500, height: 72))
+        preview.imageScaling = .scaleProportionallyDown
+        preview.wantsLayer = true
+        preview.layer?.cornerRadius = 4
+        addSubview(preview); addSubview(dateLabel); addSubview(bodyLabel); addSubview(pinIndicator)
+        preview.translatesAutoresizingMaskIntoConstraints = false
+        dateLabel.translatesAutoresizingMaskIntoConstraints = false
+        bodyLabel.translatesAutoresizingMaskIntoConstraints = false
+        pinIndicator.translatesAutoresizingMaskIntoConstraints = false
+        dateLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        bodyLabel.font = .systemFont(ofSize: 11)
+        bodyLabel.textColor = .secondaryLabelColor
+        bodyLabel.maximumNumberOfLines = 2
+        bodyLabel.lineBreakMode = .byTruncatingTail
+        pinIndicator.image = NSImage(systemSymbolName: "pin.fill", accessibilityDescription: nil)
+        pinIndicator.contentTintColor = .systemBlue
+        NSLayoutConstraint.activate([
+            preview.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            preview.centerYAnchor.constraint(equalTo: centerYAnchor),
+            preview.widthAnchor.constraint(equalToConstant: 88),
+            preview.heightAnchor.constraint(equalToConstant: 56),
+            dateLabel.leadingAnchor.constraint(equalTo: preview.trailingAnchor, constant: 12),
+            dateLabel.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            dateLabel.trailingAnchor.constraint(equalTo: pinIndicator.leadingAnchor, constant: -8),
+            bodyLabel.leadingAnchor.constraint(equalTo: dateLabel.leadingAnchor),
+            bodyLabel.topAnchor.constraint(equalTo: dateLabel.bottomAnchor, constant: 4),
+            bodyLabel.trailingAnchor.constraint(equalTo: dateLabel.trailingAnchor),
+            bodyLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8),
+            pinIndicator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            pinIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
+            pinIndicator.widthAnchor.constraint(equalToConstant: 14),
+            pinIndicator.heightAnchor.constraint(equalToConstant: 14),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(entry: AppDelegate.MergedEntry, owner: AppDelegate?) {
+        dateLabel.stringValue = owner?.formatDate(entry.date) ?? ""
+        pinIndicator.isHidden = !entry.isPinned
+        switch entry {
+        case .image(_, let h):
+            if let img = h.image {
+                preview.image = owner?.thumbnail(from: img, maxSize: NSSize(width: 88, height: 56))
+            }
+            bodyLabel.stringValue = NSLocalizedString("browser.row.image_label", comment: "Row label for an image entry")
+        case .text(_, let t):
+            let content = t.content ?? ""
+            bodyLabel.stringValue = content.replacingOccurrences(of: "\n", with: " ")
+                                            .replacingOccurrences(of: "\t", with: " ")
+            preview.image = owner?.textCard(preview: owner?.textPreview(content, limit: 80) ?? "",
+                                              size: NSSize(width: 88, height: 56))
+        }
+    }
+}
+
+// MARK: - Color Picker
+
+final class ColorPickerWindowController: NSWindowController, NSWindowDelegate {
+    private let imageURL: URL
+    private var imageView: ZoomableImageView!
+    private var swatch: NSView!
+    private var hexLabel: NSTextField!
+    private var rgbLabel: NSTextField!
+    private var hslLabel: NSTextField!
+
+    init(imageURL: URL) {
+        self.imageURL = imageURL
+        let w = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 560),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered, defer: false
+        )
+        w.title = NSLocalizedString("colorpicker.window.title", comment: "Color picker window title")
+        w.center()
+        super.init(window: w)
+        w.delegate = self
+        buildUI()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func buildUI() {
+        guard let cv = window?.contentView else { return }
+        imageView = ZoomableImageView(frame: .zero)
+        imageView.image = NSImage(contentsOf: imageURL)
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.onPixelHover = { [weak self] color in self?.updateSwatch(color: color) }
+        imageView.onPixelClick = { [weak self] color in self?.copyHex(color: color) }
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(imageView)
+        let panel = NSView()
+        panel.wantsLayer = true
+        panel.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        panel.layer?.cornerRadius = 8
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(panel)
+        swatch = NSView()
+        swatch.wantsLayer = true
+        swatch.layer?.cornerRadius = 6
+        swatch.layer?.borderWidth = 1
+        swatch.layer?.borderColor = NSColor.separatorColor.cgColor
+        swatch.layer?.backgroundColor = NSColor.gray.cgColor
+        swatch.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(swatch)
+        hexLabel = NSTextField(labelWithString: NSLocalizedString("colorpicker.hint.hover",
+                                                                     comment: "Hint shown before user hovers a pixel"))
+        hexLabel.font = .monospacedSystemFont(ofSize: 16, weight: .bold)
+        hexLabel.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(hexLabel)
+        rgbLabel = NSTextField(labelWithString: "")
+        rgbLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        rgbLabel.textColor = .secondaryLabelColor
+        rgbLabel.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(rgbLabel)
+        hslLabel = NSTextField(labelWithString: "")
+        hslLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        hslLabel.textColor = .secondaryLabelColor
+        hslLabel.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(hslLabel)
+        let hint = NSTextField(labelWithString: NSLocalizedString("colorpicker.hint.click",
+                                                                    comment: "Hint that clicking copies hex"))
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .tertiaryLabelColor
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(hint)
+        NSLayoutConstraint.activate([
+            imageView.topAnchor.constraint(equalTo: cv.topAnchor),
+            imageView.leadingAnchor.constraint(equalTo: cv.leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: cv.trailingAnchor),
+            imageView.bottomAnchor.constraint(equalTo: panel.topAnchor, constant: -8),
+            panel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 12),
+            panel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -12),
+            panel.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -12),
+            panel.heightAnchor.constraint(equalToConstant: 80),
+            swatch.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 16),
+            swatch.centerYAnchor.constraint(equalTo: panel.centerYAnchor),
+            swatch.widthAnchor.constraint(equalToConstant: 52),
+            swatch.heightAnchor.constraint(equalToConstant: 52),
+            hexLabel.leadingAnchor.constraint(equalTo: swatch.trailingAnchor, constant: 14),
+            hexLabel.topAnchor.constraint(equalTo: panel.topAnchor, constant: 12),
+            rgbLabel.leadingAnchor.constraint(equalTo: hexLabel.leadingAnchor),
+            rgbLabel.topAnchor.constraint(equalTo: hexLabel.bottomAnchor, constant: 4),
+            hslLabel.leadingAnchor.constraint(equalTo: hexLabel.leadingAnchor),
+            hslLabel.topAnchor.constraint(equalTo: rgbLabel.bottomAnchor, constant: 2),
+            hint.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -16),
+            hint.centerYAnchor.constraint(equalTo: panel.centerYAnchor),
+        ])
+    }
+
+    private func updateSwatch(color: NSColor) {
+        swatch.layer?.backgroundColor = color.cgColor
+        let r = Int(round(color.redComponent * 255))
+        let g = Int(round(color.greenComponent * 255))
+        let b = Int(round(color.blueComponent * 255))
+        hexLabel.stringValue = String(format: "#%02X%02X%02X", r, g, b)
+        rgbLabel.stringValue = "RGB(\(r), \(g), \(b))"
+        let (h, s, l) = rgbToHsl(r: color.redComponent, g: color.greenComponent, b: color.blueComponent)
+        hslLabel.stringValue = String(format: "HSL(%.0f°, %.0f%%, %.0f%%)", h * 360, s * 100, l * 100)
+    }
+
+    private func copyHex(color: NSColor) {
+        let r = Int(round(color.redComponent * 255))
+        let g = Int(round(color.greenComponent * 255))
+        let b = Int(round(color.blueComponent * 255))
+        let hex = String(format: "#%02X%02X%02X", r, g, b)
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(hex, forType: .string)
+        swatch.layer?.borderColor = NSColor.systemBlue.cgColor
+        swatch.layer?.borderWidth = 3
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.swatch.layer?.borderColor = NSColor.separatorColor.cgColor
+            self?.swatch.layer?.borderWidth = 1
+        }
+    }
+
+    private func rgbToHsl(r: CGFloat, g: CGFloat, b: CGFloat) -> (CGFloat, CGFloat, CGFloat) {
+        let mx = max(r, g, b), mn = min(r, g, b)
+        let l = (mx + mn) / 2
+        if mx == mn { return (0, 0, l) }
+        let d = mx - mn
+        let s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn)
+        var h: CGFloat
+        if mx == r { h = (g - b) / d + (g < b ? 6 : 0) }
+        else if mx == g { h = (b - r) / d + 2 }
+        else { h = (r - g) / d + 4 }
+        h /= 6
+        return (h, s, l)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+    }
+}
+
+final class ZoomableImageView: NSImageView {
+    var onPixelHover: ((NSColor) -> Void)?
+    var onPixelClick: ((NSColor) -> Void)?
+    private var trackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let t = trackingArea { removeTrackingArea(t) }
+        let area = NSTrackingArea(rect: bounds,
+                                    options: [.mouseMoved, .mouseEnteredAndExited,
+                                              .activeInKeyWindow, .inVisibleRect],
+                                    owner: self, userInfo: nil)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    private func pixelColorAt(viewPoint: NSPoint) -> NSColor? {
+        guard let image = self.image else { return nil }
+        let imgSize = image.size
+        guard imgSize.width > 0 && imgSize.height > 0 else { return nil }
+        let viewAspect = bounds.width / bounds.height
+        let imgAspect = imgSize.width / imgSize.height
+        var drawRect = bounds
+        if imgAspect > viewAspect {
+            drawRect.size.height = bounds.width / imgAspect
+            drawRect.origin.y = (bounds.height - drawRect.size.height) / 2
+        } else {
+            drawRect.size.width = bounds.height * imgAspect
+            drawRect.origin.x = (bounds.width - drawRect.size.width) / 2
+        }
+        guard drawRect.contains(viewPoint) else { return nil }
+        let normX = (viewPoint.x - drawRect.origin.x) / drawRect.size.width
+        let normY = 1 - (viewPoint.y - drawRect.origin.y) / drawRect.size.height
+        guard let rep = image.representations.compactMap({ $0 as? NSBitmapImageRep }).first
+                ?? (image.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0) }) else { return nil }
+        let px = Int(normX * CGFloat(rep.pixelsWide))
+        let py = Int(normY * CGFloat(rep.pixelsHigh))
+        guard px >= 0 && px < rep.pixelsWide && py >= 0 && py < rep.pixelsHigh else { return nil }
+        return rep.colorAt(x: px, y: py)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        if let color = pixelColorAt(viewPoint: p) { onPixelHover?(color) }
+    }
+    override func mouseUp(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        if let color = pixelColorAt(viewPoint: p) { onPixelClick?(color) }
+    }
+}
+
+// MARK: - Hotkey Recorder
+
+final class HotkeyRecorderView: NSView {
+    var onCapture: ((UInt32, UInt32) -> Void)?
+    private let label = NSTextField(labelWithString: "")
+    private var isRecording = false
+    private var currentKey: UInt32
+    private var currentMods: UInt32
+
+    init(initialKey: UInt32, initialMods: UInt32) {
+        self.currentKey = initialKey; self.currentMods = initialMods
+        super.init(frame: NSRect(x: 0, y: 0, width: 240, height: 28))
+        wantsLayer = true
+        layer?.cornerRadius = 6
+        layer?.borderWidth = 1
+        layer?.borderColor = NSColor.separatorColor.cgColor
+        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        label.frame = NSRect(x: 12, y: 4, width: 216, height: 20)
+        label.alignment = .center
+        label.font = .systemFont(ofSize: 13, weight: .medium)
+        label.isEditable = false
+        label.isBordered = false
+        label.drawsBackground = false
+        label.refusesFirstResponder = true
+        addSubview(label)
+        updateLabel()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var acceptsFirstResponder: Bool { true }
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        isRecording = true
+        label.stringValue = NSLocalizedString("hotkey.recording", comment: "Recording prompt")
+        label.textColor = .systemBlue
+    }
+    override func keyDown(with event: NSEvent) {
+        guard isRecording else { return }
+        if event.keyCode == 53 { isRecording = false; updateLabel(); return }
+        let flags = event.modifierFlags
+        var mods: UInt32 = 0
+        if flags.contains(.command) { mods |= UInt32(cmdKey) }
+        if flags.contains(.shift) { mods |= UInt32(shiftKey) }
+        if flags.contains(.option) { mods |= UInt32(optionKey) }
+        if flags.contains(.control) { mods |= UInt32(controlKey) }
+        guard mods != 0 else {
+            label.stringValue = NSLocalizedString("hotkey.error.needs_modifier",
+                                                    comment: "Error: needs at least one modifier")
+            label.textColor = .systemRed
+            return
+        }
+        currentKey = UInt32(event.keyCode)
+        currentMods = mods
+        isRecording = false
+        updateLabel()
+        onCapture?(currentKey, currentMods)
+    }
+
+    private func updateLabel() {
+        label.textColor = .labelColor
+        label.stringValue = HotkeyRecorderView.describe(key: currentKey, mods: currentMods)
+    }
+
+    static func describe(key: UInt32, mods: UInt32) -> String {
+        var s = ""
+        if mods & UInt32(controlKey) != 0 { s += "⌃" }
+        if mods & UInt32(optionKey) != 0 { s += "⌥" }
+        if mods & UInt32(shiftKey) != 0 { s += "⇧" }
+        if mods & UInt32(cmdKey) != 0 { s += "⌘" }
+        s += keyName(key)
+        return s
+    }
+
+    static func keyName(_ keyCode: UInt32) -> String {
+        let map: [UInt32: String] = [
+            0:"A",1:"S",2:"D",3:"F",4:"H",5:"G",6:"Z",7:"X",8:"C",9:"V",
+            11:"B",12:"Q",13:"W",14:"E",15:"R",16:"Y",17:"T",
+            31:"O",32:"U",34:"I",35:"P",37:"L",38:"J",40:"K",
+            45:"N",46:"M",18:"1",19:"2",20:"3",21:"4",23:"5",22:"6",
+            26:"7",28:"8",25:"9",29:"0",36:"⏎",49:"Espacio",51:"⌫",
+            53:"⎋",123:"←",124:"→",125:"↓",126:"↑",
+        ]
+        return map[keyCode] ?? "?"
+    }
+}
+
+final class HotkeySettingsWindowController: NSWindowController {
+    weak var appDelegate: AppDelegate?
+
+    init(owner: AppDelegate) {
+        self.appDelegate = owner
+        let w = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 200),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+        w.title = NSLocalizedString("hotkey.window.title", comment: "Hotkey settings window title")
+        w.center()
+        super.init(window: w)
+        buildUI()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func buildUI() {
+        guard let cv = window?.contentView else { return }
+        let title = NSTextField(labelWithString: NSLocalizedString("hotkey.title",
+                                                                     comment: "Hotkey settings title"))
+        title.font = .systemFont(ofSize: 13, weight: .medium)
+        title.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(title)
+        let hint = NSTextField(labelWithString: NSLocalizedString("hotkey.hint",
+                                                                    comment: "Click + press combo hint"))
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .secondaryLabelColor
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(hint)
+        let (key, mods) = Settings.globalHotkey
+        let recorder = HotkeyRecorderView(initialKey: key, initialMods: mods)
+        recorder.translatesAutoresizingMaskIntoConstraints = false
+        recorder.onCapture = { [weak self] key, mods in
+            Settings.globalHotkey = (key, mods)
+            self?.appDelegate?.globalHotkey?.unregister()
+            self?.appDelegate?.registerGlobalHotkey()
+        }
+        cv.addSubview(recorder)
+        let resetBtn = NSButton(title: NSLocalizedString("hotkey.reset_default",
+                                                            comment: "Reset to default hotkey button"),
+                                 target: self, action: #selector(resetDefault))
+        resetBtn.bezelStyle = .accessoryBarAction
+        resetBtn.isBordered = false
+        resetBtn.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(resetBtn)
+        NSLayoutConstraint.activate([
+            title.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
+            title.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 20),
+            hint.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 4),
+            hint.leadingAnchor.constraint(equalTo: title.leadingAnchor),
+            recorder.topAnchor.constraint(equalTo: hint.bottomAnchor, constant: 16),
+            recorder.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+            recorder.widthAnchor.constraint(equalToConstant: 240),
+            recorder.heightAnchor.constraint(equalToConstant: 28),
+            resetBtn.topAnchor.constraint(equalTo: recorder.bottomAnchor, constant: 12),
+            resetBtn.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+        ])
+    }
+
+    @objc func resetDefault() {
+        Settings.globalHotkey = (UInt32(kVK_ANSI_V), UInt32(cmdKey | shiftKey))
+        appDelegate?.globalHotkey?.unregister()
+        appDelegate?.registerGlobalHotkey()
+        window?.close()
     }
 }
 

@@ -28,6 +28,27 @@
 /* Menu item: opens the Finder folder where saved copied-text files live. */
 "menu.action.open_text_folder" = "Abrir carpeta de texto";
 
+/* Menu item that opens the searchable history browser window. */
+"menu.action.search_history" = "Buscar en historial…";
+
+/* Section headers in the menu */
+"menu.section.pinned" = "📌 Anclados";
+"menu.section.recent" = "Recientes";
+
+/* Submenu actions per history entry */
+"menu.action.pin" = "📌 Anclar";
+"menu.action.unpin" = "Quitar anclado";
+"menu.action.copy_ocr_text" = "📝 Copiar solo el texto";
+"menu.action.color_picker" = "🎨 Picker de color…";
+"menu.action.reveal_in_finder" = "Mostrar en Finder";
+"menu.action.delete" = "Borrar";
+
+/* Preferences: OCR toggle */
+"menu.preferences.ocr" = "OCR en capturas (texto buscable)";
+
+/* Preferences: global hotkey row; %@ = current binding like "⌘⇧V" */
+"menu.preferences.global_hotkey" = "Atajo global: %@…";
+
 /* Menu item: prompts the user to clear the saved history. */
 "menu.action.clear_history" = "Limpiar historial";
 
@@ -243,3 +264,42 @@
    character (•). Do not translate "Cmd", "Shift", "Ctrl" — those are the
    localized macOS modifier names that users recognize in any language. */
 "about.body.format" = "Guarda automáticamente cada captura y, si lo activas, cada texto que copies. Mantiene un historial al que puedes volver con un solo clic.\n\nCómo capturar:\n  • Cmd+Shift+Ctrl+3/4 — directo al portapapeles\n  • Cmd+Shift+3/4 — guarda en %1$@\n  • Cmd+C — guarda el texto en el historial (si está activado en Preferencias)\n\nHistorial guardado en:\n  %2$@\n\n© 2026 Jean Carlos Morla Genao. Licencia MIT.\nEste software se distribuye \"tal cual\", sin garantías expresas o implícitas. El autor no se hace responsable de pérdida de datos o daños derivados del uso.";
+
+/* ===== History Browser ===== */
+"browser.window.title" = "Buscar en historial";
+"browser.search.placeholder" = "Buscar capturas o texto…";
+"browser.row.image_label" = "📸 Captura";
+
+/* ===== Color Picker ===== */
+"colorpicker.window.title" = "Picker de color";
+"colorpicker.hint.hover" = "Pasá el mouse sobre la imagen";
+"colorpicker.hint.click" = "Click en la imagen para copiar el hex";
+
+/* ===== Hotkey settings ===== */
+"hotkey.window.title" = "Atajo global";
+"hotkey.title" = "Atajo para abrir Buscar en historial";
+"hotkey.hint" = "Click en el campo y apretá la combinación. Esc cancela.";
+"hotkey.recording" = "Apretá la combinación…";
+"hotkey.error.needs_modifier" = "Necesita un modificador (⌘⌥⌃⇧)";
+"hotkey.reset_default" = "Volver al default (⌘⇧V)";
+
+/* ===== Paywall / IAP ===== */
+"menu.pro.unlock" = "✨ Desbloquear ClipShot Pro";
+"menu.pro.active" = "✓ ClipShot Pro activo";
+"menu.preferences.ocr_pro" = "OCR en capturas — Pro";
+"menu.action.color_picker_pro" = "🎨 Picker de color — Pro";
+"paywall.subtitle" = "Desbloquea OCR, picker de color e historial ilimitado";
+"paywall.button.buy" = "Desbloquear Pro";
+"paywall.button.restore" = "Restaurar compra";
+"paywall.feature.ocr" = "OCR — buscar texto dentro de capturas";
+"paywall.feature.unlimited" = "Historial ilimitado (Free: 500 items)";
+"paywall.feature.color_picker" = "Picker de color sobre capturas";
+"paywall.feature.support" = "Apoyas al desarrollador independiente 💙";
+"paywall.price.unavailable" = "Cargando precio…";
+"paywall.price.format" = "Una sola vez · %@";
+"paywall.status.purchasing" = "Procesando compra…";
+"paywall.status.success" = "¡Listo! Pro activado ✓";
+"paywall.status.cancelled" = "Compra cancelada";
+"paywall.status.restoring" = "Restaurando…";
+"paywall.status.restored" = "¡Listo! Compra restaurada ✓";
+"paywall.status.no_purchase" = "No encontramos una compra previa";

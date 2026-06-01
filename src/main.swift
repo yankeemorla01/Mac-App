@@ -3,6 +3,9 @@ import QuartzCore
 import ApplicationServices
 import ServiceManagement
 import Sparkle
+import Quartz   // QLPreviewPanel para Quick Look
+import Vision   // OCR de screenshots
+import Carbon.HIToolbox  // global hotkey via RegisterEventHotKey
 
 enum SavingMode: String {
     case appleNative = "apple"
@@ -38,6 +41,100 @@ enum Settings {
         get { d.bool(forKey: kSaveText) }
         set { d.set(newValue, forKey: kSaveText) }
     }
+
+    /// IDs (short UUID prefix) de items anclados. Sobreviven el cap de 30 y aparecen
+    /// en una sección "Anclados" arriba del menú. Persistido como [String] en UserDefaults.
+    private static let kPinned = "clipshot.pinnedHistoryIds"
+    static var pinnedHistoryIds: Set<String> {
+        get { Set(d.stringArray(forKey: kPinned) ?? []) }
+        set { d.set(Array(newValue), forKey: kPinned) }
+    }
+    static func isPinned(_ id: String) -> Bool { pinnedHistoryIds.contains(id) }
+    static func togglePinned(_ id: String) {
+        var s = pinnedHistoryIds
+        if s.contains(id) { s.remove(id) } else { s.insert(id) }
+        pinnedHistoryIds = s
+    }
+
+    /// Bundle IDs de apps donde NO debemos capturar texto del portapapeles
+    /// (password managers, banca, etc.). Defaults razonables: 1Password, Bitwarden,
+    /// Keychain Access. El usuario puede agregar más en Preferencias.
+    private static let kExcludedApps = "clipshot.excludedAppBundleIds"
+    static let defaultExcludedApps: [String] = [
+        "com.apple.keychainaccess",
+        "com.agilebits.onepassword7",
+        "com.agilebits.onepassword4",
+        "com.1password.1password",
+        "com.bitwarden.desktop",
+        "com.lastpass.LastPass",
+        "com.dashlane.dashlanephonefinal",
+    ]
+    static var excludedAppBundleIds: [String] {
+        get {
+            if let stored = d.stringArray(forKey: kExcludedApps) { return stored }
+            return defaultExcludedApps
+        }
+        set { d.set(newValue, forKey: kExcludedApps) }
+    }
+
+    /// Global hotkey config: por defecto ⌘⇧V. Codificado como Int (keyCode + modifiers).
+    private static let kHotkeyKey = "clipshot.globalHotkey.key"
+    private static let kHotkeyMods = "clipshot.globalHotkey.mods"
+    /// Returns (keyCode, modifierFlags as carbon modifiers).
+    static var globalHotkey: (key: UInt32, mods: UInt32) {
+        get {
+            let k = d.object(forKey: kHotkeyKey) as? Int ?? Int(kVK_ANSI_V)
+            let m = d.object(forKey: kHotkeyMods) as? Int ?? (cmdKey | shiftKey)
+            return (UInt32(k), UInt32(m))
+        }
+        set {
+            d.set(Int(newValue.key), forKey: kHotkeyKey)
+            d.set(Int(newValue.mods), forKey: kHotkeyMods)
+        }
+    }
+
+    /// OCR opt-in: cuando está activo, cada nueva captura se procesa con Apple
+    /// Vision para extraer el texto y guardarlo en un .ocr.txt junto al .png,
+    /// lo que hace que el History Browser pueda buscar dentro de las imágenes.
+    private static let kEnableOCR = "clipshot.enableOCR"
+    static var enableOCR: Bool {
+        get { d.bool(forKey: kEnableOCR) }
+        set { d.set(newValue, forKey: kEnableOCR) }
+    }
+
+    /// ClipShot Pro flag.
+    ///
+    /// En el build Developer ID este se setea via flujo de licencia (futuro
+    /// integrarlo con Stripe/Paddle). En el build App Store se sincroniza con
+    /// `Transaction.currentEntitlements` de StoreKit 2.
+    ///
+    /// Por ahora soportamos también una env var `CLIPSHOT_PRO=1` para QA y
+    /// un trial de 7 días: al primer arranque se marca `proTrialStart`, y mientras
+    /// (now - trialStart) < 7 días, isPro devuelve true automáticamente.
+    private static let kIsPro = "clipshot.isPro"
+    private static let kTrialStart = "clipshot.proTrialStart"
+    static let trialDuration: TimeInterval = 7 * 24 * 3600
+
+    /// En el build Developer ID (DMG distribuido fuera del Mac App Store) todas
+    /// las features son GRATIS. La monetización para usuarios técnicos se hace via
+    /// tip jar / "Apoyar el desarrollo" link, no via paywall.
+    /// El build del App Store usa StoreKit 2 IAP (ver appstore/src/main.swift).
+    static var isPro: Bool { true }
+
+    static func setPro(_ value: Bool) {
+        d.set(value, forKey: kIsPro)
+    }
+
+    static var trialDaysRemaining: Int {
+        let start = d.double(forKey: kTrialStart)
+        guard start > 0 else { return Int(trialDuration / 86400) }
+        let elapsed = Date().timeIntervalSince1970 - start
+        let remaining = trialDuration - elapsed
+        return max(0, Int(ceil(remaining / 86400)))
+    }
+
+    /// Free tier history cap. Pro = ilimitado (sin cap aplicado).
+    static let freeHistoryCap = 15
 
     private static let kOriginalThumb = "clipshot.originalShowThumbnail"
     static var originalShowThumbnail: Bool? {
@@ -113,6 +210,45 @@ func clog(_ s: String) {
 
 
 
+
+/// NSMenuItem con `view` custom — el truco para mantener el menú abierto al
+/// click es que el ACTION del click NO sea el del NSMenuItem (NSMenu cierra
+/// cuando el item dispara su acción) sino el de un NSButton interno.
+///
+/// NSButton maneja todo el tracking de mouseDown/up/drag por nosotros, y NSMenu
+/// no ve nada — solo ve que su view "consumió" el evento.
+final class StayOpenItemView: NSView {
+    private let button: NSButton
+    private let onClick: () -> Void
+
+    init(initialTitle: String, owner: NSObject?, onClick: @escaping () -> Void) {
+        self.onClick = onClick
+        // .regularSquare con isBordered=false da una zona clickeable plana
+        // con highlight de hover automático y respeta los modos del sistema.
+        let b = NSButton(title: initialTitle, target: nil, action: nil)
+        b.isBordered = false
+        b.bezelStyle = .regularSquare
+        b.alignment = .left
+        b.contentTintColor = .labelColor
+        b.font = NSFont.menuFont(ofSize: 0)
+        // .momentaryChange evita que se quede "presionado" tras el click
+        b.setButtonType(.momentaryChange)
+        self.button = b
+        super.init(frame: NSRect(x: 0, y: 0, width: 220, height: 22))
+        b.frame = NSRect(x: 14, y: 0, width: 206, height: 22)
+        addSubview(b)
+        b.target = self
+        b.action = #selector(handleClick)
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    func setTitle(_ s: String) { button.title = s }
+
+    @objc private func handleClick() {
+        onClick()
+    }
+}
 
 final class DraggableThumbnailView: NSView, NSDraggingSource {
     var image: NSImage?
@@ -276,7 +412,7 @@ final class ThumbnailOverlay {
 
 final class WelcomeWindowController: NSWindowController {
     private var currentStep = 0
-    private let totalSteps = 6
+    private let totalSteps = 7
     private var contentBox: NSView!
     private var backButton: NSButton!
     private var nextButton: NSButton!
@@ -358,10 +494,11 @@ final class WelcomeWindowController: NSWindowController {
         let view: NSView
         switch currentStep {
         case 0: view = buildWelcome()
-        case 1: view = buildSavingMode()
-        case 2: view = buildOverlay()
-        case 3: view = buildLogin()
-        case 4: view = buildPrivacy()
+        case 1: view = buildFeatures()
+        case 2: view = buildSavingMode()
+        case 3: view = buildOverlay()
+        case 4: view = buildLogin()
+        case 5: view = buildPrivacy()
         default: view = buildDone()
         }
         view.frame = contentBox.bounds
@@ -413,6 +550,77 @@ final class WelcomeWindowController: NSWindowController {
             body.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -30),
         ])
         return v
+    }
+
+    /// Step 2: introduce todas las features nuevas para que el user las descubra
+    /// el primer día y no quede en "tengo screenshots y nada más".
+    private func buildFeatures() -> NSView {
+        let container = NSView()
+
+        let title = label("¿Qué hace ClipShot?", size: 26, weight: .bold,
+                            color: .labelColor)
+        title.frame = NSRect(x: 20, y: 270, width: 440, height: 40)
+        title.autoresizingMask = [.minYMargin, .width]
+        container.addSubview(title)
+
+        let subtitle = label("Mucho más que solo guardar capturas:",
+                                size: 13, weight: .regular,
+                                color: .secondaryLabelColor)
+        subtitle.frame = NSRect(x: 20, y: 240, width: 440, height: 22)
+        subtitle.autoresizingMask = [.minYMargin, .width]
+        container.addSubview(subtitle)
+
+        let features: [(String, String, String)] = [
+            ("camera.viewfinder", "Capturas + Texto",
+             "Cada captura Y cada texto que copies, guardados en un historial unificado"),
+            ("magnifyingglass.circle", "Buscar todo con ⌘⇧V",
+             "Ventana de búsqueda desde cualquier app — fechas, contenido, OCR de imágenes"),
+            ("text.viewfinder", "OCR en capturas",
+             "Vision extrae el texto de cada captura — pegalo después como texto editable"),
+            ("eyedropper.halffull", "Picker de color",
+             "Click en cualquier pixel de una captura → te copia el hex"),
+            ("pin.fill", "Anclar favoritos",
+             "Items importantes sobreviven el límite del historial"),
+        ]
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
+        stack.frame = NSRect(x: 40, y: 30, width: 400, height: 200)
+        stack.autoresizingMask = [.minYMargin, .maxYMargin]
+        for (sym, title, body) in features {
+            let row = NSStackView()
+            row.orientation = .horizontal
+            row.alignment = .top
+            row.spacing = 12
+            let icon = NSImageView()
+            icon.image = NSImage(systemSymbolName: sym, accessibilityDescription: nil)
+            icon.symbolConfiguration = .init(pointSize: 18, weight: .medium)
+            icon.contentTintColor = .systemBlue
+            icon.translatesAutoresizingMaskIntoConstraints = false
+            icon.widthAnchor.constraint(equalToConstant: 26).isActive = true
+            icon.heightAnchor.constraint(equalToConstant: 26).isActive = true
+            let texts = NSStackView()
+            texts.orientation = .vertical
+            texts.alignment = .leading
+            texts.spacing = 1
+            let t = NSTextField(labelWithString: title)
+            t.font = .systemFont(ofSize: 13, weight: .semibold)
+            let b = NSTextField(labelWithString: body)
+            b.font = .systemFont(ofSize: 11)
+            b.textColor = .secondaryLabelColor
+            b.maximumNumberOfLines = 2
+            b.preferredMaxLayoutWidth = 340
+            texts.addArrangedSubview(t)
+            texts.addArrangedSubview(b)
+            row.addArrangedSubview(icon)
+            row.addArrangedSubview(texts)
+            stack.addArrangedSubview(row)
+        }
+        container.addSubview(stack)
+
+        return container
     }
 
     private func buildSavingMode() -> NSView {
@@ -692,6 +900,13 @@ struct HistoryItem {
     let date: Date
     let imagePath: URL
     var image: NSImage? { NSImage(contentsOf: imagePath) }
+    var isPinned: Bool { Settings.isPinned(id) }
+    /// Texto extraído por OCR (lazy load del sidecar `<file>.ocr.txt`).
+    /// Nil si OCR no se corrió o la captura no tiene texto.
+    var ocrText: String? {
+        let sidecar = imagePath.deletingPathExtension().appendingPathExtension("ocr.txt")
+        return try? String(contentsOf: sidecar, encoding: .utf8)
+    }
 }
 
 struct TextItem {
@@ -699,14 +914,16 @@ struct TextItem {
     let date: Date
     let textPath: URL
     var content: String? { try? String(contentsOf: textPath, encoding: .utf8) }
+    var isPinned: Bool { Settings.isPinned(id) }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem!
     var history: [HistoryItem] = []
     var textHistory: [TextItem] = []
-    let maxHistory = 30
-    let maxTextHistory = 30
+    /// Free: 15 items, Pro: 500 (un cap razonable para no llenar disco)
+    var maxHistory: Int { Settings.isPro ? 500 : Settings.freeHistoryCap }
+    var maxTextHistory: Int { Settings.isPro ? 500 : Settings.freeHistoryCap }
     var lastChangeCount: Int = -1
     var pbTimer: Timer?
     var folderTimer: Timer?
@@ -728,6 +945,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         userDriverDelegate: nil
     )
 
+    /// History browser window — search-as-you-type sobre todo el historial.
+    /// Se crea on-demand la primera vez que el user lo abre.
+    var browserWC: HistoryBrowserWindowController?
+
+    /// Global hotkey (default ⌘⇧V) — abre el History Browser desde cualquier app.
+    var globalHotkey: GlobalHotkey?
+
     override init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         storeDir = appSupport.appendingPathComponent("ClipShot/history")
@@ -739,6 +963,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        cleanupExtendedAttributes()
         applyCurrentSavingMode()
         detectScreenshotLocation()
         loadHistory()
@@ -746,6 +971,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
         startPasteboardMonitor()
         startFolderMonitor()
+        registerGlobalHotkey()
 
         if !Settings.hasSeenIntro {
             showWelcome()
@@ -772,6 +998,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.setActivationPolicy(.accessory)
             self?.welcomeWC = nil
         }
+    }
+
+    /// Limpia los xattr (com.apple.quarantine, com.apple.macl, etc) del bundle
+    /// al arrancar. Resuelve el clásico "no se puede abrir" cuando el user
+    /// arrastra una versión nueva encima de la vieja en /Applications, porque
+    /// macOS conserva los xattr del binario anterior y rompen la verificación
+    /// de firma. Ejecutar `xattr -cr` sobre nuestro propio bundle mientras
+    /// estamos corriendo es seguro — solo afecta los metadatos, no el binario.
+    func cleanupExtendedAttributes() {
+        let bundlePath = Bundle.main.bundlePath
+        // Solo limpiamos si estamos en /Applications (instalación), no en /Users
+        // donde el dev podría estar ejecutando una build de testing.
+        guard bundlePath.hasPrefix("/Applications/") else { return }
+        let task = Process()
+        task.launchPath = "/usr/bin/xattr"
+        task.arguments = ["-cr", bundlePath]
+        task.standardOutput = Pipe()
+        task.standardError = Pipe()
+        try? task.run()
     }
 
     func applyCurrentSavingMode() {
@@ -844,6 +1089,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// NSMenu delegate: rebuild el menú cada vez que el user lo abre. Esto cubre
+    /// el caso de OCR que termina en background — la próxima vez que abran el
+    /// menú, las opciones "Copiar solo el texto" aparecen para las capturas
+    /// que ya tienen sidecar.
+    func menuWillOpen(_ menu: NSMenu) {
+        rebuildMenu()
+    }
+
     func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
@@ -863,40 +1116,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(header)
         menu.addItem(.separator())
 
+        // Sección "Anclados" (si hay items pineados) — sobreviven el cap de 30.
+        let pinned = pinnedEntries()
+        if !pinned.isEmpty {
+            let pinHeader = NSMenuItem(title: "📌 Anclados", action: nil, keyEquivalent: "")
+            pinHeader.isEnabled = false
+            menu.addItem(pinHeader)
+            for entry in pinned {
+                addEntryMenuItem(entry, to: menu)
+            }
+            menu.addItem(.separator())
+            let regularHeader = NSMenuItem(title: "Recientes", action: nil, keyEquivalent: "")
+            regularHeader.isEnabled = false
+            menu.addItem(regularHeader)
+        }
+
         // Lista unificada: capturas y textos intercalados por fecha (más reciente arriba).
-        // Cada uno se ve distinto: las capturas muestran su thumbnail real, los textos
-        // se renderizan como una tarjetita con el preview adentro.
         let merged = mergedHistoryEntries()
-        if merged.isEmpty {
+        if merged.isEmpty && pinned.isEmpty {
             let empty = NSMenuItem(title: "  Aún no hay historial", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
+        } else if merged.isEmpty {
+            let empty = NSMenuItem(title: "  Sin items recientes", action: nil, keyEquivalent: "")
             empty.isEnabled = false
             menu.addItem(empty)
         } else {
             for entry in merged {
-                switch entry {
-                case .image(let idx, let h):
-                    let item = NSMenuItem(title: "  " + formatDate(h.date),
-                                            action: #selector(copyHistoryItem(_:)), keyEquivalent: "")
-                    item.target = self
-                    item.tag = idx
-                    if let img = h.image {
-                        item.image = thumbnail(from: img, maxSize: NSSize(width: 140, height: 90))
-                    }
-                    menu.addItem(item)
-                case .text(let idx, let t):
-                    let body = textPreview(t.content ?? "", limit: 120)
-                    let item = NSMenuItem(title: "  " + formatDate(t.date),
-                                            action: #selector(copyTextHistoryItem(_:)), keyEquivalent: "")
-                    item.target = self
-                    item.tag = idx
-                    item.image = textCard(preview: body, size: NSSize(width: 140, height: 90))
-                    item.toolTip = t.content
-                    menu.addItem(item)
-                }
+                addEntryMenuItem(entry, to: menu)
             }
         }
 
         menu.addItem(.separator())
+        let browseItem = NSMenuItem(title: "Buscar en historial…",
+                                      action: #selector(openHistoryBrowser),
+                                      keyEquivalent: "f")
+        browseItem.target = self
+        menu.addItem(browseItem)
+
         let openFolder = NSMenuItem(title: "Abrir carpeta de capturas", action: #selector(openHistoryFolder), keyEquivalent: "o")
         openFolder.target = self
         menu.addItem(openFolder)
@@ -941,6 +1198,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         textHistoryItem.target = self
         textHistoryItem.state = Settings.saveTextHistory ? .on : .off
         prefsMenu.addItem(textHistoryItem)
+
+        let ocrItem = NSMenuItem(title: "OCR en capturas (texto buscable)",
+                                   action: #selector(toggleOCRPref), keyEquivalent: "")
+        ocrItem.target = self
+        ocrItem.state = Settings.enableOCR ? .on : .off
+        prefsMenu.addItem(ocrItem)
+
+        let (hkKey, hkMods) = Settings.globalHotkey
+        let hkLabel = "Atajo global: " + HotkeyRecorderView.describe(key: hkKey, mods: hkMods) + "…"
+        let hkItem = NSMenuItem(title: hkLabel,
+                                  action: #selector(openHotkeySettings), keyEquivalent: "")
+        hkItem.target = self
+        prefsMenu.addItem(hkItem)
         prefsMenu.addItem(.separator())
 
         // Sparkle auto-update: the action selector lives on the updater controller
@@ -961,6 +1231,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         prefs.submenu = prefsMenu
         menu.addItem(prefs)
 
+        // DMG: todo gratis. Mostramos un "Apoyar el desarrollo" opcional para
+        // los que quieran donar — no es paywall, es propina si les gustó.
+        let supportItem = NSMenuItem(title: "💙 Apoyar el desarrollo…",
+                                       action: #selector(openSupport), keyEquivalent: "")
+        supportItem.target = self
+        menu.addItem(supportItem)
+
         let about = NSMenuItem(title: "Acerca de ClipShot", action: #selector(showAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
@@ -968,6 +1245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let quit = NSMenuItem(title: "Salir", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
 
+        menu.delegate = self
         statusItem.menu = menu
     }
 
@@ -994,8 +1272,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Settings.saveTextHistory.toggle()
         rebuildMenu()
     }
+    @objc func toggleOCRPref() {
+        Settings.enableOCR.toggle()
+        rebuildMenu()
+    }
     @objc func reopenWelcome() {
         showWelcome()
+    }
+
+    @objc func openPaywall() {
+        PaywallWindowController.presentModal()
+    }
+
+    @objc func openSupport() {
+        if let url = URL(string: "https://josegcasadogenao.github.io/clipshot/support") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    var hotkeyWC: HotkeySettingsWindowController?
+    @objc func openHotkeySettings() {
+        if hotkeyWC == nil {
+            hotkeyWC = HotkeySettingsWindowController(owner: self)
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification,
+                                                     object: hotkeyWC?.window, queue: .main) { [weak self] _ in
+                NSApp.setActivationPolicy(.accessory)
+                self?.hotkeyWC = nil
+                self?.rebuildMenu()
+            }
+        }
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        hotkeyWC?.showWindow(nil)
+        hotkeyWC?.window?.makeKeyAndOrderFront(nil)
     }
 
     func textPreview(_ text: String, limit: Int = 60) -> String {
@@ -1019,15 +1328,146 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .text(_, let t): return t.date
             }
         }
+        var isPinned: Bool {
+            switch self {
+            case .image(_, let h): return h.isPinned
+            case .text(_, let t): return t.isPinned
+            }
+        }
+        var id: String {
+            switch self {
+            case .image(_, let h): return h.id
+            case .text(_, let t): return t.id
+            }
+        }
     }
 
-    func mergedHistoryEntries(limit: Int = 20) -> [MergedEntry] {
+    /// Devuelve TODAS las entries (imágenes + textos si saveTextHistory está activo),
+    /// ordenadas por fecha descendente. No aplica límite; el corte se hace abajo
+    /// según si la entry está anclada o no.
+    func allMergedEntries() -> [MergedEntry] {
         var entries: [MergedEntry] = history.enumerated().map { .image($0.offset, $0.element) }
         if Settings.saveTextHistory {
             entries.append(contentsOf: textHistory.enumerated().map { .text($0.offset, $0.element) })
         }
         entries.sort { $0.date > $1.date }
-        return Array(entries.prefix(limit))
+        return entries
+    }
+
+    func mergedHistoryEntries(limit: Int = 20) -> [MergedEntry] {
+        Array(allMergedEntries().filter { !$0.isPinned }.prefix(limit))
+    }
+
+    func pinnedEntries() -> [MergedEntry] {
+        allMergedEntries().filter { $0.isPinned }
+    }
+
+    /// Crea el NSMenuItem para una entry y lo agrega al menú dado.
+    /// El item principal copia al portapapeles cuando se clickea; el submenú permite
+    /// anclar/desanclar, mostrar en Finder o borrar individualmente.
+    func addEntryMenuItem(_ entry: MergedEntry, to menu: NSMenu) {
+        switch entry {
+        case .image(let idx, let h):
+            let item = NSMenuItem(title: "  " + formatDate(h.date),
+                                    action: #selector(copyHistoryItem(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = idx
+            if let img = h.image {
+                item.image = thumbnail(from: img, maxSize: NSSize(width: 140, height: 90))
+            }
+            item.submenu = buildEntrySubmenu(id: h.id, fileURL: h.imagePath, isImage: true)
+            menu.addItem(item)
+        case .text(let idx, let t):
+            let body = textPreview(t.content ?? "", limit: 120)
+            let item = NSMenuItem(title: "  " + formatDate(t.date),
+                                    action: #selector(copyTextHistoryItem(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = idx
+            item.image = textCard(preview: body, size: NSSize(width: 140, height: 90))
+            item.toolTip = t.content
+            item.submenu = buildEntrySubmenu(id: t.id, fileURL: t.textPath, isImage: false)
+            menu.addItem(item)
+        }
+    }
+
+    /// Crea un submenú de acciones para un item del historial.
+    /// El item "Anclar" usa target/action estándar — NSMenu cierra al click y
+    /// re-abrimos enseguida vía RunLoop. Es el patrón estándar de Maccy.
+    /// macOS no permite actualizar NSMenu durante tracking sin un re-open.
+    func buildEntrySubmenu(id: String, fileURL: URL, isImage: Bool) -> NSMenu {
+        let sub = NSMenu()
+        sub.autoenablesItems = false
+
+        let pinTitle = Settings.isPinned(id) ? "Quitar anclado" : "📌 Anclar"
+        let pinItem = NSMenuItem(title: pinTitle, action: #selector(togglePinEntry(_:)), keyEquivalent: "")
+        pinItem.target = self
+        pinItem.representedObject = id
+        sub.addItem(pinItem)
+
+        if isImage {
+            let sidecar = fileURL.deletingPathExtension().appendingPathExtension("ocr.txt")
+            if FileManager.default.fileExists(atPath: sidecar.path) {
+                let ocrItem = NSMenuItem(title: "📝 Copiar solo el texto",
+                                           action: #selector(copyOCRTextFromImage(_:)),
+                                           keyEquivalent: "")
+                ocrItem.target = self
+                ocrItem.representedObject = fileURL
+                sub.addItem(ocrItem)
+            }
+            let pickerItem = NSMenuItem(title: "🎨 Picker de color…",
+                                          action: #selector(openColorPicker(_:)),
+                                          keyEquivalent: "")
+            pickerItem.target = self
+            pickerItem.representedObject = fileURL
+            sub.addItem(pickerItem)
+        }
+
+        sub.addItem(.separator())
+
+        let revealItem = NSMenuItem(title: "Mostrar en Finder",
+                                      action: #selector(revealEntry(_:)), keyEquivalent: "")
+        revealItem.target = self
+        revealItem.representedObject = fileURL
+        sub.addItem(revealItem)
+
+        let deleteItem = NSMenuItem(title: "Borrar", action: #selector(deleteEntry(_:)), keyEquivalent: "")
+        deleteItem.target = self
+        deleteItem.representedObject = ["id": id, "fileURL": fileURL, "isImage": isImage] as [String: Any]
+        sub.addItem(deleteItem)
+
+        return sub
+    }
+
+    @objc func togglePinEntry(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        Settings.togglePinned(id)
+        rebuildMenu()
+        // Re-open via RunLoop.main.perform en modo .common — más rápido que
+        // DispatchQueue.main.async porque corre en el mismo runloop pass al
+        // terminar el modo de event tracking. El flicker es mínimo (~16ms).
+        RunLoop.main.perform(inModes: [.common]) { [weak self] in
+            self?.statusItem.button?.performClick(nil)
+        }
+    }
+
+    @objc func revealEntry(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    @objc func deleteEntry(_ sender: NSMenuItem) {
+        guard let info = sender.representedObject as? [String: Any],
+              let url = info["fileURL"] as? URL,
+              let id = info["id"] as? String,
+              let isImage = info["isImage"] as? Bool else { return }
+        try? FileManager.default.removeItem(at: url)
+        if isImage {
+            let sidecar = url.deletingPathExtension().appendingPathExtension("ocr.txt")
+            try? FileManager.default.removeItem(at: sidecar)
+        }
+        if Settings.isPinned(id) { Settings.togglePinned(id) }
+        if isImage { loadHistory() } else { loadTextHistory() }
+        rebuildMenu()
     }
 
     func textCard(preview: String, size: NSSize) -> NSImage {
@@ -1132,6 +1572,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(storeDir)
     }
 
+    func registerGlobalHotkey() {
+        let (key, mods) = Settings.globalHotkey
+        globalHotkey = GlobalHotkey { [weak self] in
+            self?.openHistoryBrowser()
+        }
+        globalHotkey?.register(keyCode: key, modifiers: mods)
+    }
+
+    @objc func openHistoryBrowser() {
+        // Crea la ventana on-demand para no consumir memoria si nunca se usa.
+        if browserWC == nil {
+            browserWC = HistoryBrowserWindowController(owner: self)
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification,
+                                                     object: browserWC?.window, queue: .main) { [weak self] _ in
+                NSApp.setActivationPolicy(.accessory)
+                self?.browserWC = nil
+            }
+        }
+        browserWC?.reloadFromOwner()
+        // Cambiamos a regular activation policy para que la ventana tome foco
+        // y aparezca en el Dock/cmd-tab; al cerrarla volvemos a accessory.
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        browserWC?.showWindow(nil)
+        browserWC?.window?.makeKeyAndOrderFront(nil)
+    }
+
     @objc func openTextHistoryFolder() {
         NSWorkspace.shared.open(textStoreDir)
     }
@@ -1145,6 +1612,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pb.setString(text, forType: .string)
         lastChangeCount = pb.changeCount
         flashStatusIcon(symbol: "checkmark.circle.fill")
+    }
+
+    /// Lee el sidecar OCR de una imagen del historial y copia su texto al portapapeles
+    /// (sin la imagen). Útil cuando capturás un email o código para pegarlo editable.
+    @objc func copyOCRTextFromImage(_ sender: NSMenuItem) {
+        guard let imageURL = sender.representedObject as? URL else { return }
+        let sidecar = imageURL.deletingPathExtension().appendingPathExtension("ocr.txt")
+        guard let text = try? String(contentsOf: sidecar, encoding: .utf8) else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(text, forType: .string)
+        lastChangeCount = pb.changeCount
+        flashStatusIcon(symbol: "text.viewfinder")
+    }
+
+    /// Abre el color picker (feature Pro) sobre una imagen del historial.
+    /// Retiene el WC en un slot para que no se libere mientras la ventana está visible.
+    var colorPickerWC: ColorPickerWindowController?
+    @objc func openColorPicker(_ sender: NSMenuItem) {
+        guard let imageURL = sender.representedObject as? URL else { return }
+        colorPickerWC = ColorPickerWindowController(imageURL: imageURL)
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        colorPickerWC?.showWindow(nil)
+        colorPickerWC?.window?.makeKeyAndOrderFront(nil)
     }
 
     @objc func clearHistory() {
@@ -1312,7 +1804,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showAbout() {
         let alert = NSAlert()
-        alert.messageText = "ClipShot 1.3"
+        alert.messageText = "ClipShot 1.6"
         alert.informativeText = """
         Guarda automáticamente cada screenshot y, opcionalmente, cada texto que copias.
         Mantiene un historial al que puedes volver con un solo clic.
@@ -1374,6 +1866,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         guard Settings.saveTextHistory else { return }
 
+        // Apps explícitamente excluidas (password managers, banca, etc.).
+        if let frontApp = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+           Settings.excludedAppBundleIds.contains(frontApp) {
+            return
+        }
+
         // Respeta convención nspasteboard.com: apps marcan contenido sensible
         // (contraseñas, datos de password managers) y debemos ignorarlos.
         let concealed = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
@@ -1422,12 +1920,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let item = TextItem(id: String(id.prefix(6)), date: now, textPath: url)
         textHistory.insert(item, at: 0)
-        while textHistory.count > maxTextHistory {
-            let removed = textHistory.removeLast()
-            try? FileManager.default.removeItem(at: removed.textPath)
-        }
+        pruneTextHistory()
         rebuildMenu()
         flashStatusIcon(symbol: "doc.on.clipboard.fill")
+    }
+
+    /// Trim image history al cap manteniendo los anclados.
+    /// También borra el sidecar OCR (.ocr.txt) si existe.
+    private func pruneHistory() {
+        var unpinnedCount = history.filter { !$0.isPinned }.count
+        var idx = history.count - 1
+        while unpinnedCount > maxHistory && idx >= 0 {
+            if !history[idx].isPinned {
+                let removed = history.remove(at: idx)
+                try? FileManager.default.removeItem(at: removed.imagePath)
+                let sidecar = removed.imagePath.deletingPathExtension().appendingPathExtension("ocr.txt")
+                try? FileManager.default.removeItem(at: sidecar)
+                unpinnedCount -= 1
+            }
+            idx -= 1
+        }
+    }
+
+    /// Trim text history al cap manteniendo los anclados. Itera desde el final y
+    /// borra solo entries no ancladas hasta que el total NO ancladas <= maxTextHistory.
+    private func pruneTextHistory() {
+        var unpinnedCount = textHistory.filter { !$0.isPinned }.count
+        var idx = textHistory.count - 1
+        while unpinnedCount > maxTextHistory && idx >= 0 {
+            if !textHistory[idx].isPinned {
+                let removed = textHistory.remove(at: idx)
+                try? FileManager.default.removeItem(at: removed.textPath)
+                unpinnedCount -= 1
+            }
+            idx -= 1
+        }
     }
 
     func loadTextHistory() {
@@ -1450,11 +1977,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let db = (try? b.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date.distantPast
             return da > db
         }
-        textHistory = sorted.prefix(maxTextHistory).map { url in
+        // Carga todos los anclados + los más recientes no anclados hasta maxTextHistory.
+        var loaded: [TextItem] = []
+        var unpinnedTaken = 0
+        for url in sorted {
             let date = (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date()
-            let id = url.deletingPathExtension().lastPathComponent
-            return TextItem(id: id, date: date, textPath: url)
+            let id = extractId(from: url)
+            let item = TextItem(id: id, date: date, textPath: url)
+            if item.isPinned {
+                loaded.append(item)
+            } else if unpinnedTaken < maxTextHistory {
+                loaded.append(item)
+                unpinnedTaken += 1
+            }
         }
+        textHistory = loaded
+    }
+
+    /// Extrae el sufijo corto de 6 chars del filename (después del último `_`).
+    /// Para "Texto 2026-05-27 a las 14-30-12_a1b2c3.txt" devuelve "a1b2c3".
+    /// Es lo que usamos como id estable entre runs (para anclar items, etc.).
+    func extractId(from url: URL) -> String {
+        let stem = url.deletingPathExtension().lastPathComponent
+        if let u = stem.lastIndex(of: "_") {
+            return String(stem[stem.index(after: u)...])
+        }
+        return stem
     }
 
     func startFolderMonitor() {
@@ -1554,6 +2102,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Corre Vision para extraer texto de una captura y lo guarda como sidecar
+    /// `<id>.ocr.txt` junto al .png. El sidecar lo lee `loadHistory` para llenar
+    /// `ocrText` en HistoryItem y hacer que el search del browser lo encuentre.
+    /// Async, en background — no bloquea el monitor del portapapeles.
+    /// Al completar, reconstruye el menú para que aparezca "Copiar solo el texto".
+    func runOCRIfEnabled(imagePath: URL, nsImage: NSImage) {
+        guard Settings.enableOCR else { return }
+        guard Settings.isPro else { return }  // OCR es feature Pro
+        guard let cg = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let req = VNRecognizeTextRequest { request, _ in
+                let lines = (request.results as? [VNRecognizedTextObservation] ?? [])
+                    .compactMap { $0.topCandidates(1).first?.string }
+                let combined = lines.joined(separator: "\n")
+                guard !combined.isEmpty else { return }
+                let sidecar = imagePath.deletingPathExtension().appendingPathExtension("ocr.txt")
+                try? combined.data(using: .utf8)?.write(to: sidecar, options: [.atomic])
+                try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: sidecar.path)
+                // Reconstruye el menú en main thread para que aparezca la opción
+                // "Copiar solo el texto" la próxima vez que el user lo abra.
+                DispatchQueue.main.async { self?.rebuildMenu() }
+            }
+            req.recognitionLevel = .accurate
+            req.usesLanguageCorrection = true
+            req.recognitionLanguages = ["es-ES", "en-US"]
+            let handler = VNImageRequestHandler(cgImage: cg, options: [:])
+            try? handler.perform([req])
+        }
+    }
+
     func saveScreenshot(image: NSImage, showOverlay: Bool = false) {
         let now = Date()
         let id = UUID().uuidString
@@ -1585,12 +2163,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let item = HistoryItem(id: String(id.prefix(6)), date: Date(), imagePath: url)
         history.insert(item, at: 0)
-        while history.count > maxHistory {
-            let removed = history.removeLast()
-            try? FileManager.default.removeItem(at: removed.imagePath)
-        }
+        pruneHistory()
         rebuildMenu()
         flashStatusIcon(symbol: "camera.fill")
+        runOCRIfEnabled(imagePath: url, nsImage: image)
         if showOverlay && Settings.showOverlay {
             overlay.show(image: image, fileURL: url)
         }
@@ -1616,10 +2192,1022 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let db = (try? b.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date.distantPast
             return da > db
         }
-        history = sorted.prefix(maxHistory).map { url in
+        // Carga TODOS los items que están anclados (sin importar cap) + los más recientes
+        // no anclados hasta llenar maxHistory.
+        var loaded: [HistoryItem] = []
+        var unpinnedTaken = 0
+        for url in sorted {
             let date = (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date()
-            let id = url.deletingPathExtension().lastPathComponent
-            return HistoryItem(id: id, date: date, imagePath: url)
+            let id = extractId(from: url)
+            let item = HistoryItem(id: id, date: date, imagePath: url)
+            if item.isPinned {
+                loaded.append(item)
+            } else if unpinnedTaken < maxHistory {
+                loaded.append(item)
+                unpinnedTaken += 1
+            }
+        }
+        history = loaded
+    }
+}
+
+// MARK: - Color Picker
+//
+// Ventana que muestra una captura a tamaño completo. Al mover el mouse encima,
+// muestra el color del pixel debajo + hex/RGB. Click copia el formato actual.
+// Pro feature: justifica el precio para diseñadores.
+final class ColorPickerWindowController: NSWindowController, NSWindowDelegate {
+    private let imageURL: URL
+    private var imageView: ZoomableImageView!
+    private var swatch: NSView!
+    private var hexLabel: NSTextField!
+    private var rgbLabel: NSTextField!
+    private var hslLabel: NSTextField!
+    private var lastColor: NSColor = .clear
+
+    init(imageURL: URL) {
+        self.imageURL = imageURL
+        let w = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 560),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        w.title = "Picker de color"
+        w.center()
+        super.init(window: w)
+        w.delegate = self
+        buildUI()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func buildUI() {
+        guard let cv = window?.contentView else { return }
+
+        imageView = ZoomableImageView(frame: .zero)
+        imageView.image = NSImage(contentsOf: imageURL)
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.onPixelHover = { [weak self] color in
+            self?.updateSwatch(color: color)
+        }
+        imageView.onPixelClick = { [weak self] color in
+            self?.copyHex(color: color)
+        }
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(imageView)
+
+        let panel = NSView()
+        panel.wantsLayer = true
+        panel.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        panel.layer?.cornerRadius = 8
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(panel)
+
+        swatch = NSView()
+        swatch.wantsLayer = true
+        swatch.layer?.cornerRadius = 6
+        swatch.layer?.borderWidth = 1
+        swatch.layer?.borderColor = NSColor.separatorColor.cgColor
+        swatch.layer?.backgroundColor = NSColor.gray.cgColor
+        swatch.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(swatch)
+
+        hexLabel = NSTextField(labelWithString: "Pasá el mouse sobre la imagen")
+        hexLabel.font = .monospacedSystemFont(ofSize: 16, weight: .bold)
+        hexLabel.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(hexLabel)
+
+        rgbLabel = NSTextField(labelWithString: "")
+        rgbLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        rgbLabel.textColor = .secondaryLabelColor
+        rgbLabel.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(rgbLabel)
+
+        hslLabel = NSTextField(labelWithString: "")
+        hslLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        hslLabel.textColor = .secondaryLabelColor
+        hslLabel.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(hslLabel)
+
+        let hint = NSTextField(labelWithString: "Click en la imagen para copiar el hex")
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .tertiaryLabelColor
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(hint)
+
+        NSLayoutConstraint.activate([
+            imageView.topAnchor.constraint(equalTo: cv.topAnchor),
+            imageView.leadingAnchor.constraint(equalTo: cv.leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: cv.trailingAnchor),
+            imageView.bottomAnchor.constraint(equalTo: panel.topAnchor, constant: -8),
+
+            panel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 12),
+            panel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -12),
+            panel.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -12),
+            panel.heightAnchor.constraint(equalToConstant: 80),
+
+            swatch.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 16),
+            swatch.centerYAnchor.constraint(equalTo: panel.centerYAnchor),
+            swatch.widthAnchor.constraint(equalToConstant: 52),
+            swatch.heightAnchor.constraint(equalToConstant: 52),
+
+            hexLabel.leadingAnchor.constraint(equalTo: swatch.trailingAnchor, constant: 14),
+            hexLabel.topAnchor.constraint(equalTo: panel.topAnchor, constant: 12),
+
+            rgbLabel.leadingAnchor.constraint(equalTo: hexLabel.leadingAnchor),
+            rgbLabel.topAnchor.constraint(equalTo: hexLabel.bottomAnchor, constant: 4),
+
+            hslLabel.leadingAnchor.constraint(equalTo: hexLabel.leadingAnchor),
+            hslLabel.topAnchor.constraint(equalTo: rgbLabel.bottomAnchor, constant: 2),
+
+            hint.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -16),
+            hint.centerYAnchor.constraint(equalTo: panel.centerYAnchor),
+        ])
+    }
+
+    private func updateSwatch(color: NSColor) {
+        lastColor = color
+        swatch.layer?.backgroundColor = color.cgColor
+        let r = Int(round(color.redComponent * 255))
+        let g = Int(round(color.greenComponent * 255))
+        let b = Int(round(color.blueComponent * 255))
+        let hex = String(format: "#%02X%02X%02X", r, g, b)
+        hexLabel.stringValue = hex
+        rgbLabel.stringValue = "RGB(\(r), \(g), \(b))"
+        let (h, s, l) = rgbToHsl(r: color.redComponent, g: color.greenComponent, b: color.blueComponent)
+        hslLabel.stringValue = String(format: "HSL(%.0f°, %.0f%%, %.0f%%)", h * 360, s * 100, l * 100)
+    }
+
+    private func copyHex(color: NSColor) {
+        let r = Int(round(color.redComponent * 255))
+        let g = Int(round(color.greenComponent * 255))
+        let b = Int(round(color.blueComponent * 255))
+        let hex = String(format: "#%02X%02X%02X", r, g, b)
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(hex, forType: .string)
+        // Flash visual rápido en el swatch para confirmar
+        swatch.layer?.borderColor = NSColor.systemBlue.cgColor
+        swatch.layer?.borderWidth = 3
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.swatch.layer?.borderColor = NSColor.separatorColor.cgColor
+            self?.swatch.layer?.borderWidth = 1
+        }
+    }
+
+    /// Convierte RGB (0-1) a HSL (h: 0-1, s: 0-1, l: 0-1).
+    private func rgbToHsl(r: CGFloat, g: CGFloat, b: CGFloat) -> (CGFloat, CGFloat, CGFloat) {
+        let mx = max(r, g, b), mn = min(r, g, b)
+        let l = (mx + mn) / 2
+        if mx == mn { return (0, 0, l) }
+        let d = mx - mn
+        let s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn)
+        var h: CGFloat
+        if mx == r { h = (g - b) / d + (g < b ? 6 : 0) }
+        else if mx == g { h = (b - r) / d + 2 }
+        else { h = (r - g) / d + 4 }
+        h /= 6
+        return (h, s, l)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+    }
+}
+
+/// NSImageView que reporta el color del pixel debajo del mouse en cada movimiento.
+final class ZoomableImageView: NSImageView {
+    var onPixelHover: ((NSColor) -> Void)?
+    var onPixelClick: ((NSColor) -> Void)?
+    private var trackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let t = trackingArea { removeTrackingArea(t) }
+        let area = NSTrackingArea(rect: bounds,
+                                    options: [.mouseMoved, .mouseEnteredAndExited,
+                                              .activeInKeyWindow, .inVisibleRect],
+                                    owner: self, userInfo: nil)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    /// Convierte la posición del mouse (en coords del view) a coords de pixel
+    /// del NSImage subyacente, considerando aspect-fit scaling.
+    private func pixelColorAt(viewPoint: NSPoint) -> NSColor? {
+        guard let image = self.image else { return nil }
+        let imgSize = image.size
+        guard imgSize.width > 0 && imgSize.height > 0 else { return nil }
+        // Calcula el rect donde se dibuja la imagen (aspect-fit dentro de bounds)
+        let viewAspect = bounds.width / bounds.height
+        let imgAspect = imgSize.width / imgSize.height
+        var drawRect = bounds
+        if imgAspect > viewAspect {
+            drawRect.size.height = bounds.width / imgAspect
+            drawRect.origin.y = (bounds.height - drawRect.size.height) / 2
+        } else {
+            drawRect.size.width = bounds.height * imgAspect
+            drawRect.origin.x = (bounds.width - drawRect.size.width) / 2
+        }
+        guard drawRect.contains(viewPoint) else { return nil }
+        let normX = (viewPoint.x - drawRect.origin.x) / drawRect.size.width
+        let normY = 1 - (viewPoint.y - drawRect.origin.y) / drawRect.size.height
+        // Necesitamos un NSBitmapImageRep para muestrear pixels reales
+        guard let rep = image.representations.compactMap({ $0 as? NSBitmapImageRep }).first
+                ?? (image.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0) }) else {
+            return nil
+        }
+        let px = Int(normX * CGFloat(rep.pixelsWide))
+        let py = Int(normY * CGFloat(rep.pixelsHigh))
+        guard px >= 0 && px < rep.pixelsWide && py >= 0 && py < rep.pixelsHigh else { return nil }
+        return rep.colorAt(x: px, y: py)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        if let color = pixelColorAt(viewPoint: p) {
+            onPixelHover?(color)
+        }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        if let color = pixelColorAt(viewPoint: p) {
+            onPixelClick?(color)
+        }
+    }
+}
+
+// MARK: - Hotkey Recorder
+//
+// Campo que captura la próxima combinación de teclas que apretas mientras
+// está focused, igual que el panel de Atajos de macOS Settings. Convierte
+// la NSEvent a Carbon keyCode+modifiers que es lo que necesita RegisterEventHotKey.
+final class HotkeyRecorderView: NSView {
+    var onCapture: ((UInt32, UInt32) -> Void)?
+    private let label = NSTextField(labelWithString: "")
+    private var isRecording = false
+    private var currentKey: UInt32
+    private var currentMods: UInt32
+
+    init(initialKey: UInt32, initialMods: UInt32) {
+        self.currentKey = initialKey
+        self.currentMods = initialMods
+        super.init(frame: NSRect(x: 0, y: 0, width: 240, height: 28))
+        wantsLayer = true
+        layer?.cornerRadius = 6
+        layer?.borderWidth = 1
+        layer?.borderColor = NSColor.separatorColor.cgColor
+        layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        label.frame = NSRect(x: 12, y: 4, width: 216, height: 20)
+        label.alignment = .center
+        label.font = .systemFont(ofSize: 13, weight: .medium)
+        label.textColor = .labelColor
+        label.isEditable = false
+        label.isBordered = false
+        label.drawsBackground = false
+        label.refusesFirstResponder = true
+        addSubview(label)
+        updateLabel()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        isRecording = true
+        label.stringValue = "Apretá la combinación…"
+        label.textColor = .systemBlue
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard isRecording else { return }
+        // Esc cancela sin cambiar
+        if event.keyCode == 53 {
+            isRecording = false
+            updateLabel()
+            return
+        }
+        // Necesitamos al menos un modificador (sino podría conflictuar con teclas normales)
+        let flags = event.modifierFlags
+        var mods: UInt32 = 0
+        if flags.contains(.command) { mods |= UInt32(cmdKey) }
+        if flags.contains(.shift) { mods |= UInt32(shiftKey) }
+        if flags.contains(.option) { mods |= UInt32(optionKey) }
+        if flags.contains(.control) { mods |= UInt32(controlKey) }
+        guard mods != 0 else {
+            label.stringValue = "Necesita un modificador (⌘⌥⌃⇧)"
+            label.textColor = .systemRed
+            return
+        }
+        currentKey = UInt32(event.keyCode)
+        currentMods = mods
+        isRecording = false
+        updateLabel()
+        onCapture?(currentKey, currentMods)
+    }
+
+    private func updateLabel() {
+        label.textColor = .labelColor
+        label.stringValue = HotkeyRecorderView.describe(key: currentKey, mods: currentMods)
+    }
+
+    /// Devuelve "⌘⇧V"-style.
+    static func describe(key: UInt32, mods: UInt32) -> String {
+        var s = ""
+        if mods & UInt32(controlKey) != 0 { s += "⌃" }
+        if mods & UInt32(optionKey) != 0 { s += "⌥" }
+        if mods & UInt32(shiftKey) != 0 { s += "⇧" }
+        if mods & UInt32(cmdKey) != 0 { s += "⌘" }
+        s += keyName(key)
+        return s
+    }
+
+    static func keyName(_ keyCode: UInt32) -> String {
+        let map: [UInt32: String] = [
+            0:"A",1:"S",2:"D",3:"F",4:"H",5:"G",6:"Z",7:"X",8:"C",9:"V",
+            11:"B",12:"Q",13:"W",14:"E",15:"R",16:"Y",17:"T",
+            31:"O",32:"U",34:"I",35:"P",37:"L",38:"J",40:"K",
+            45:"N",46:"M",18:"1",19:"2",20:"3",21:"4",23:"5",22:"6",
+            26:"7",28:"8",25:"9",29:"0",36:"⏎",49:"Espacio",51:"⌫",
+            53:"⎋",123:"←",124:"→",125:"↓",126:"↑",
+        ]
+        return map[keyCode] ?? "?"
+    }
+}
+
+final class HotkeySettingsWindowController: NSWindowController {
+    weak var appDelegate: AppDelegate?
+
+    init(owner: AppDelegate) {
+        self.appDelegate = owner
+        let w = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered, defer: false
+        )
+        w.title = "Atajo global"
+        w.center()
+        super.init(window: w)
+        buildUI()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func buildUI() {
+        guard let cv = window?.contentView else { return }
+        let title = NSTextField(labelWithString: "Atajo para abrir Buscar en historial")
+        title.font = .systemFont(ofSize: 13, weight: .medium)
+        title.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(title)
+
+        let hint = NSTextField(labelWithString: "Click en el campo y apretá la combinación. Esc cancela.")
+        hint.font = .systemFont(ofSize: 11)
+        hint.textColor = .secondaryLabelColor
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(hint)
+
+        let (key, mods) = Settings.globalHotkey
+        let recorder = HotkeyRecorderView(initialKey: key, initialMods: mods)
+        recorder.translatesAutoresizingMaskIntoConstraints = false
+        recorder.onCapture = { [weak self] key, mods in
+            Settings.globalHotkey = (key, mods)
+            self?.appDelegate?.globalHotkey?.unregister()
+            self?.appDelegate?.registerGlobalHotkey()
+        }
+        cv.addSubview(recorder)
+
+        let resetBtn = NSButton(title: "Volver al default (⌘⇧V)", target: self, action: #selector(resetDefault))
+        resetBtn.bezelStyle = .accessoryBarAction
+        resetBtn.isBordered = false
+        resetBtn.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(resetBtn)
+
+        NSLayoutConstraint.activate([
+            title.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
+            title.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 20),
+            hint.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 4),
+            hint.leadingAnchor.constraint(equalTo: title.leadingAnchor),
+            recorder.topAnchor.constraint(equalTo: hint.bottomAnchor, constant: 16),
+            recorder.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+            recorder.widthAnchor.constraint(equalToConstant: 240),
+            recorder.heightAnchor.constraint(equalToConstant: 28),
+            resetBtn.topAnchor.constraint(equalTo: recorder.bottomAnchor, constant: 12),
+            resetBtn.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+        ])
+    }
+
+    @objc func resetDefault() {
+        Settings.globalHotkey = (UInt32(kVK_ANSI_V), UInt32(cmdKey | shiftKey))
+        appDelegate?.globalHotkey?.unregister()
+        appDelegate?.registerGlobalHotkey()
+        window?.close()
+    }
+}
+
+// MARK: - Paywall Window
+//
+// Ventana de upsell que aparece cuando el usuario intenta usar una feature Pro
+// (o explícitamente eligen "Upgrade" desde el menú). Por ahora la compra real
+// va a un link externo (Stripe Checkout / Paddle). El App Store build usaría
+// StoreKit 2 directamente sin esta ventana.
+final class PaywallWindowController: NSWindowController {
+    static func presentModal() {
+        let wc = PaywallWindowController()
+        wc.showWindow(nil)
+        wc.window?.makeKeyAndOrderFront(nil)
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    convenience init() {
+        let w = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 540),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        w.title = "ClipShot Pro"
+        w.center()
+        self.init(window: w)
+        buildContent()
+    }
+
+    private func buildContent() {
+        guard let cv = window?.contentView else { return }
+        cv.wantsLayer = true
+        cv.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+
+        let icon = NSImageView()
+        icon.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil)
+        icon.symbolConfiguration = .init(pointSize: 48, weight: .regular)
+        icon.contentTintColor = .systemBlue
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(icon)
+
+        let title = NSTextField(labelWithString: "ClipShot Pro")
+        title.font = .systemFont(ofSize: 28, weight: .bold)
+        title.alignment = .center
+        title.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(title)
+
+        let trial = Settings.trialDaysRemaining
+        let subStr: String
+        if Settings.isPro && !Settings.d_isProSet {
+            subStr = "Te quedan \(trial) días de prueba gratis"
+        } else if Settings.isPro {
+            subStr = "Ya tienes ClipShot Pro activo ✓"
+        } else {
+            subStr = "Tu trial terminó. Desbloquea las features Pro:"
+        }
+        let subtitle = NSTextField(labelWithString: subStr)
+        subtitle.font = .systemFont(ofSize: 14)
+        subtitle.textColor = .secondaryLabelColor
+        subtitle.alignment = .center
+        subtitle.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(subtitle)
+
+        let features = makeFeatureList()
+        features.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(features)
+
+        let priceLabel = NSTextField(labelWithString: "Una sola vez · $9.99")
+        priceLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        priceLabel.alignment = .center
+        priceLabel.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(priceLabel)
+
+        let buyButton = NSButton(title: "Desbloquear Pro", target: self, action: #selector(buyPro))
+        buyButton.bezelStyle = .rounded
+        buyButton.keyEquivalent = "\r"
+        buyButton.controlSize = .large
+        buyButton.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(buyButton)
+
+        let restoreButton = NSButton(title: "Restaurar compra", target: self, action: #selector(restorePro))
+        restoreButton.bezelStyle = .accessoryBarAction
+        restoreButton.isBordered = false
+        restoreButton.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(restoreButton)
+
+        NSLayoutConstraint.activate([
+            icon.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
+            icon.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 56),
+            icon.heightAnchor.constraint(equalToConstant: 56),
+
+            title.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 8),
+            title.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+
+            subtitle.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 4),
+            subtitle.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 24),
+            subtitle.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -24),
+
+            features.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 20),
+            features.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 40),
+            features.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -40),
+
+            priceLabel.topAnchor.constraint(equalTo: features.bottomAnchor, constant: 16),
+            priceLabel.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+
+            buyButton.topAnchor.constraint(equalTo: priceLabel.bottomAnchor, constant: 12),
+            buyButton.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+            buyButton.widthAnchor.constraint(equalToConstant: 220),
+
+            restoreButton.topAnchor.constraint(equalTo: buyButton.bottomAnchor, constant: 8),
+            restoreButton.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+            restoreButton.bottomAnchor.constraint(lessThanOrEqualTo: cv.bottomAnchor, constant: -20),
+        ])
+    }
+
+    private func makeFeatureList() -> NSStackView {
+        let items: [(String, String)] = [
+            ("doc.text.viewfinder", "OCR — buscar texto dentro de tus capturas"),
+            ("infinity", "Historial ilimitado (Free: 15 items)"),
+            ("icloud", "Sincronización entre Macs (próximamente)"),
+            ("eyedropper", "Picker de color en capturas"),
+            ("pencil.tip.crop.circle", "Markup rápido sobre capturas (próximamente)"),
+            ("heart.fill", "Apoyas el desarrollo independiente 💙"),
+        ]
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
+        for (sym, text) in items {
+            let row = NSStackView()
+            row.orientation = .horizontal
+            row.alignment = .centerY
+            row.spacing = 12
+            let img = NSImageView()
+            img.image = NSImage(systemSymbolName: sym, accessibilityDescription: nil)
+            img.symbolConfiguration = .init(pointSize: 16, weight: .medium)
+            img.contentTintColor = .systemBlue
+            img.translatesAutoresizingMaskIntoConstraints = false
+            img.widthAnchor.constraint(equalToConstant: 22).isActive = true
+            let label = NSTextField(labelWithString: text)
+            label.font = .systemFont(ofSize: 13)
+            row.addArrangedSubview(img)
+            row.addArrangedSubview(label)
+            stack.addArrangedSubview(row)
+        }
+        return stack
+    }
+
+    @objc private func buyPro() {
+        // Por ahora abre un link externo (Stripe Checkout). En el App Store build
+        // este botón dispararía Product.purchase() de StoreKit 2.
+        if let url = URL(string: "https://josegcasadogenao.github.io/clipshot/pro") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func restorePro() {
+        let alert = NSAlert()
+        alert.messageText = "Pega tu código de licencia"
+        alert.informativeText = "Te lo mandamos por email después de la compra."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.placeholderString = "CLIPSHOT-XXXX-XXXX-XXXX"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Activar")
+        alert.addButton(withTitle: "Cancelar")
+        if alert.runModal() == .alertFirstButtonReturn {
+            let code = field.stringValue.trimmingCharacters(in: .whitespaces)
+            // TODO: validación real contra Gumroad/Paddle API. Por ahora cualquier
+            // código que empiece con "CLIPSHOT-" se acepta — placeholder.
+            if code.hasPrefix("CLIPSHOT-") {
+                Settings.setPro(true)
+                let ok = NSAlert()
+                ok.messageText = "ClipShot Pro activado ✓"
+                ok.runModal()
+                window?.close()
+            } else {
+                let err = NSAlert()
+                err.messageText = "Código inválido"
+                err.informativeText = "Verifica que sea el que recibiste por email."
+                err.runModal()
+            }
+        }
+    }
+}
+
+// Pequeña extensión interna para saber si la flag isPro fue *seteada* explícitamente
+// (vs. estar en periodo de trial). La usa el paywall para cambiar el copy.
+extension Settings {
+    static var d_isProSet: Bool {
+        return UserDefaults.standard.object(forKey: "clipshot.isPro") as? Bool ?? false
+    }
+}
+
+// MARK: - Global Hotkey
+//
+// Carbon's RegisterEventHotKey sigue siendo la API más confiable para hotkeys
+// globales en macOS (los NSEvent global monitors no funcionan si la app no
+// tiene acceso de accesibilidad). Carbon no requiere permisos especiales.
+final class GlobalHotkey {
+    private var hotKeyRef: EventHotKeyRef?
+    private var eventHandler: EventHandlerRef?
+    private let onTrigger: () -> Void
+    private static var instances: [UInt32: GlobalHotkey] = [:]
+    private static var nextID: UInt32 = 1
+
+    init(onTrigger: @escaping () -> Void) {
+        self.onTrigger = onTrigger
+    }
+
+    func register(keyCode: UInt32, modifiers: UInt32) {
+        unregister()
+        let id = GlobalHotkey.nextID
+        GlobalHotkey.nextID += 1
+        GlobalHotkey.instances[id] = self
+
+        var hotKeyID = EventHotKeyID(signature: OSType(0x434C5350), id: id)  // 'CLSP'
+        var ref: EventHotKeyRef?
+        RegisterEventHotKey(keyCode, modifiers, hotKeyID,
+                              GetApplicationEventTarget(), 0, &ref)
+        hotKeyRef = ref
+
+        var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
+                                   eventKind: UInt32(kEventHotKeyPressed))
+        InstallEventHandler(GetApplicationEventTarget(),
+                              { (_, event, _) -> OSStatus in
+            var receivedID = EventHotKeyID()
+            GetEventParameter(event,
+                                EventParamName(kEventParamDirectObject),
+                                EventParamType(typeEventHotKeyID),
+                                nil,
+                                MemoryLayout<EventHotKeyID>.size,
+                                nil,
+                                &receivedID)
+            if let inst = GlobalHotkey.instances[receivedID.id] {
+                inst.onTrigger()
+            }
+            return noErr
+        }, 1, &spec, nil, &eventHandler)
+    }
+
+    func unregister() {
+        if let ref = hotKeyRef {
+            UnregisterEventHotKey(ref)
+            hotKeyRef = nil
+        }
+        if let h = eventHandler {
+            RemoveEventHandler(h)
+            eventHandler = nil
+        }
+    }
+
+    deinit { unregister() }
+}
+
+// MARK: - History Browser Window
+//
+// Ventana separada estilo Spotlight: search field arriba + lista filtrada de
+// todos los items del historial (capturas + textos). NSMenu no permite hostear
+// un text field interactivo, así que esto vive en su propia NSWindow.
+//
+// Atajos en la ventana:
+//   ↑ / ↓     navegar
+//   Return    copia el item seleccionado al portapapeles y cierra
+//   Escape    cerrar sin copiar
+//   ⌘F        re-focus al search field (dentro de la ventana)
+final class HistoryBrowserWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSWindowDelegate {
+    weak var ownerDelegate: AppDelegate?
+    private var searchField: NSSearchField!
+    private var tableView: NSTableView!
+    private var allEntries: [AppDelegate.MergedEntry] = []
+    private var filteredEntries: [AppDelegate.MergedEntry] = []
+
+    init(owner: AppDelegate) {
+        self.ownerDelegate = owner
+        let w = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 600),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        w.title = "Buscar en historial"
+        w.minSize = NSSize(width: 380, height: 360)
+        w.center()
+        w.titlebarAppearsTransparent = false
+        super.init(window: w)
+        w.delegate = self
+        setupUI()
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    private func setupUI() {
+        guard let cv = window?.contentView else { return }
+
+        searchField = NSSearchField()
+        searchField.placeholderString = "Buscar capturas o texto…"
+        searchField.delegate = self
+        searchField.sendsSearchStringImmediately = true
+        searchField.sendsWholeSearchString = false
+        cv.addSubview(searchField)
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.borderType = .noBorder
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(scroll)
+
+        tableView = NSTableView()
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.rowHeight = 72
+        tableView.headerView = nil
+        tableView.intercellSpacing = NSSize(width: 0, height: 4)
+        tableView.style = .inset
+        tableView.selectionHighlightStyle = .regular
+        tableView.allowsMultipleSelection = false
+        tableView.target = self
+        tableView.doubleAction = #selector(rowDoubleClicked)
+
+        let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("item"))
+        col.resizingMask = [.autoresizingMask]
+        col.width = 500
+        tableView.addTableColumn(col)
+        scroll.documentView = tableView
+
+        NSLayoutConstraint.activate([
+            searchField.topAnchor.constraint(equalTo: cv.topAnchor, constant: 12),
+            searchField.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 12),
+            searchField.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -12),
+
+            scroll.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 8),
+            scroll.leadingAnchor.constraint(equalTo: cv.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: cv.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: cv.bottomAnchor),
+        ])
+    }
+
+    /// Llamado por AppDelegate cuando se abre la ventana — refresca data fresca.
+    func reloadFromOwner() {
+        allEntries = ownerDelegate?.allMergedEntries() ?? []
+        applyFilter()
+    }
+
+    private func applyFilter() {
+        let q = searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if q.isEmpty {
+            filteredEntries = allEntries
+        } else {
+            filteredEntries = allEntries.filter { entry in
+                let dateStr = ownerDelegate?.formatDate(entry.date).lowercased() ?? ""
+                if dateStr.contains(q) { return true }
+                switch entry {
+                case .image(_, let h):
+                    // OCR sidecar: si la captura tiene texto extraído, lo buscamos.
+                    return (h.ocrText?.lowercased().contains(q)) ?? false
+                case .text(_, let t):
+                    return (t.content?.lowercased().contains(q)) ?? false
+                }
+            }
+        }
+        tableView.reloadData()
+        if !filteredEntries.isEmpty {
+            tableView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        }
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        applyFilter()
+    }
+
+    // MARK: NSTableView data source / delegate
+
+    func numberOfRows(in tableView: NSTableView) -> Int { filteredEntries.count }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        let entry = filteredEntries[row]
+        let cell = HistoryBrowserCell()
+        cell.configure(entry: entry, owner: ownerDelegate)
+        return cell
+    }
+
+    // MARK: Actions
+
+    @objc private func rowDoubleClicked() {
+        copySelectedAndClose()
+    }
+
+    /// Copia el item seleccionado. Si `textOnly` es true y el item es una imagen
+    /// con OCR, copia solo el texto extraído (no la imagen).
+    private func copySelectedAndClose(textOnly: Bool = false) {
+        let row = tableView.selectedRow
+        guard row >= 0 && row < filteredEntries.count else { return }
+        let entry = filteredEntries[row]
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        switch entry {
+        case .image(_, let h):
+            if textOnly, let ocr = h.ocrText {
+                pb.setString(ocr, forType: .string)
+            } else if let img = h.image {
+                pb.writeObjects([img])
+            }
+        case .text(_, let t):
+            if let text = t.content {
+                pb.setString(text, forType: .string)
+            }
+        }
+        ownerDelegate?.lastChangeCount = pb.changeCount
+        window?.close()
+    }
+
+    /// Capturamos teclas a nivel de la ventana para que ↑↓ no las consuma el
+    /// search field cuando está focused. Return = copiar, Escape = cerrar.
+    func windowDidBecomeKey(_ notification: Notification) {
+        window?.makeFirstResponder(searchField)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        handleKey(event) ? () : super.keyDown(with: event)
+    }
+
+    /// Devuelve true si la tecla fue manejada.
+    @discardableResult
+    func handleKey(_ event: NSEvent) -> Bool {
+        let optHeld = event.modifierFlags.contains(.option)
+        switch event.keyCode {
+        case 36, 76: // Return / Enter — ⌥Return copia solo el OCR text
+            copySelectedAndClose(textOnly: optHeld)
+            return true
+        case 53: // Escape
+            window?.close()
+            return true
+        case 125: // Down arrow
+            moveSelection(by: +1)
+            return true
+        case 126: // Up arrow
+            moveSelection(by: -1)
+            return true
+        case 49: // Space — toggle Quick Look
+            toggleQuickLook()
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Abre/cierra el panel de Quick Look de macOS para el item seleccionado.
+    /// QLPreviewPanel es el mismo que usa Finder cuando presionás espacio.
+    func toggleQuickLook() {
+        guard tableView.selectedRow >= 0 else { return }
+        let panel = QLPreviewPanel.shared()
+        if panel?.isVisible == true {
+            panel?.orderOut(nil)
+        } else {
+            panel?.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    private func moveSelection(by delta: Int) {
+        guard !filteredEntries.isEmpty else { return }
+        let current = tableView.selectedRow
+        var next = current + delta
+        if next < 0 { next = 0 }
+        if next >= filteredEntries.count { next = filteredEntries.count - 1 }
+        tableView.selectRowIndexes(IndexSet(integer: next), byExtendingSelection: false)
+        tableView.scrollRowToVisible(next)
+    }
+}
+
+/// Search field también necesita interceptar ↑↓ Return — si no, los consume él
+/// (NSSearchField intenta autocompletar con flechas). Usamos commandSelector.
+extension HistoryBrowserWindowController {
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        switch commandSelector {
+        case #selector(NSResponder.moveDown(_:)):
+            moveSelection(by: +1); return true
+        case #selector(NSResponder.moveUp(_:)):
+            moveSelection(by: -1); return true
+        case #selector(NSResponder.insertNewline(_:)):
+            copySelectedAndClose(textOnly: false); return true
+        case #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
+            // ⌥Return desde el search field
+            copySelectedAndClose(textOnly: true); return true
+        case #selector(NSResponder.cancelOperation(_:)):
+            window?.close(); return true
+        default:
+            return false
+        }
+    }
+}
+
+// MARK: - Quick Look integration
+
+extension HistoryBrowserWindowController: QLPreviewPanelDataSource, QLPreviewPanelDelegate {
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = self
+        panel.delegate = self
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = nil
+        panel.delegate = nil
+    }
+
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+        let row = tableView?.selectedRow ?? -1
+        return (row >= 0 && row < filteredEntries.count) ? 1 : 0
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
+        let row = tableView.selectedRow
+        guard row >= 0 && row < filteredEntries.count else { return nil }
+        switch filteredEntries[row] {
+        case .image(_, let h):
+            return h.imagePath as NSURL
+        case .text(_, let t):
+            return t.textPath as NSURL
+        }
+    }
+}
+
+/// Fila del History Browser. Muestra thumbnail / text card a la izquierda,
+/// fecha + preview de contenido en el centro, indicador de pin a la derecha.
+final class HistoryBrowserCell: NSTableCellView {
+    private let preview = NSImageView()
+    private let dateLabel = NSTextField(labelWithString: "")
+    private let bodyLabel = NSTextField(labelWithString: "")
+    private let pinIndicator = NSImageView()
+
+    init() {
+        super.init(frame: NSRect(x: 0, y: 0, width: 500, height: 72))
+        preview.imageScaling = .scaleProportionallyDown
+        preview.wantsLayer = true
+        preview.layer?.cornerRadius = 4
+        addSubview(preview)
+        addSubview(dateLabel)
+        addSubview(bodyLabel)
+        addSubview(pinIndicator)
+
+        preview.translatesAutoresizingMaskIntoConstraints = false
+        dateLabel.translatesAutoresizingMaskIntoConstraints = false
+        bodyLabel.translatesAutoresizingMaskIntoConstraints = false
+        pinIndicator.translatesAutoresizingMaskIntoConstraints = false
+
+        dateLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        dateLabel.textColor = .labelColor
+        bodyLabel.font = .systemFont(ofSize: 11)
+        bodyLabel.textColor = .secondaryLabelColor
+        bodyLabel.maximumNumberOfLines = 2
+        bodyLabel.lineBreakMode = .byTruncatingTail
+        pinIndicator.image = NSImage(systemSymbolName: "pin.fill", accessibilityDescription: nil)
+        pinIndicator.contentTintColor = .systemBlue
+
+        NSLayoutConstraint.activate([
+            preview.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            preview.centerYAnchor.constraint(equalTo: centerYAnchor),
+            preview.widthAnchor.constraint(equalToConstant: 88),
+            preview.heightAnchor.constraint(equalToConstant: 56),
+
+            dateLabel.leadingAnchor.constraint(equalTo: preview.trailingAnchor, constant: 12),
+            dateLabel.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            dateLabel.trailingAnchor.constraint(equalTo: pinIndicator.leadingAnchor, constant: -8),
+
+            bodyLabel.leadingAnchor.constraint(equalTo: dateLabel.leadingAnchor),
+            bodyLabel.topAnchor.constraint(equalTo: dateLabel.bottomAnchor, constant: 4),
+            bodyLabel.trailingAnchor.constraint(equalTo: dateLabel.trailingAnchor),
+            bodyLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8),
+
+            pinIndicator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            pinIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
+            pinIndicator.widthAnchor.constraint(equalToConstant: 14),
+            pinIndicator.heightAnchor.constraint(equalToConstant: 14),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    func configure(entry: AppDelegate.MergedEntry, owner: AppDelegate?) {
+        dateLabel.stringValue = owner?.formatDate(entry.date) ?? ""
+        pinIndicator.isHidden = !entry.isPinned
+
+        switch entry {
+        case .image(_, let h):
+            if let img = h.image {
+                preview.image = owner?.thumbnail(from: img, maxSize: NSSize(width: 88, height: 56))
+            }
+            bodyLabel.stringValue = "📸 Captura"
+        case .text(_, let t):
+            let content = t.content ?? ""
+            let oneLine = content
+                .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "\r", with: " ")
+                .replacingOccurrences(of: "\t", with: " ")
+            bodyLabel.stringValue = oneLine
+            preview.image = owner?.textCard(preview: owner?.textPreview(content, limit: 80) ?? "",
+                                              size: NSSize(width: 88, height: 56))
         }
     }
 }

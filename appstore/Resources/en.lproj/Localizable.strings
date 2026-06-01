@@ -240,3 +240,47 @@
    character (•). Do not translate "Cmd", "Shift", "Ctrl" — those are the
    localized macOS modifier names that users recognize in any language. */
 "about.body.format" = "Automatically saves every screenshot and, if you turn it on, every text you copy. Keep a history you can come back to with a single click.\n\nHow to capture:\n  • Cmd+Shift+Ctrl+3/4 — straight to the clipboard\n  • Cmd+Shift+3/4 — saves to %1$@\n  • Cmd+C — saves the text into history (if enabled in Preferences)\n\nHistory saved in:\n  %2$@\n\n© 2026 Jean Carlos Morla Genao. MIT License.\nThis software is provided \"as is\", without warranty of any kind, express or implied. The author is not responsible for any data loss or damages resulting from its use.";
+
+"menu.action.search_history" = "Search history…";
+"menu.section.pinned" = "📌 Pinned";
+"menu.section.recent" = "Recent";
+"menu.action.pin" = "📌 Pin";
+"menu.action.unpin" = "Unpin";
+"menu.action.copy_ocr_text" = "📝 Copy text only";
+"menu.action.color_picker" = "🎨 Color picker…";
+"menu.action.reveal_in_finder" = "Show in Finder";
+"menu.action.delete" = "Delete";
+"menu.preferences.ocr" = "OCR on screenshots (searchable text)";
+"menu.preferences.global_hotkey" = "Global hotkey: %@…";
+"browser.window.title" = "Search history";
+"browser.search.placeholder" = "Search screenshots or text…";
+"browser.row.image_label" = "📸 Screenshot";
+"colorpicker.window.title" = "Color picker";
+"colorpicker.hint.hover" = "Hover the mouse over the image";
+"colorpicker.hint.click" = "Click on the image to copy the hex";
+"hotkey.window.title" = "Global hotkey";
+"hotkey.title" = "Hotkey to open Search history";
+"hotkey.hint" = "Click the field and press the combination. Esc cancels.";
+"hotkey.recording" = "Press the combination…";
+"hotkey.error.needs_modifier" = "Needs a modifier (⌘⌥⌃⇧)";
+"hotkey.reset_default" = "Reset to default (⌘⇧V)";
+
+"menu.pro.unlock" = "✨ Unlock ClipShot Pro";
+"menu.pro.active" = "✓ ClipShot Pro active";
+"menu.preferences.ocr_pro" = "OCR on screenshots — Pro";
+"menu.action.color_picker_pro" = "🎨 Color picker — Pro";
+"paywall.subtitle" = "Unlock OCR, color picker and unlimited history";
+"paywall.button.buy" = "Unlock Pro";
+"paywall.button.restore" = "Restore purchase";
+"paywall.feature.ocr" = "OCR — search text inside your screenshots";
+"paywall.feature.unlimited" = "Unlimited history (Free: 500 items)";
+"paywall.feature.color_picker" = "Color picker on screenshots";
+"paywall.feature.support" = "Support independent development 💙";
+"paywall.price.unavailable" = "Loading price…";
+"paywall.price.format" = "One-time · %@";
+"paywall.status.purchasing" = "Processing purchase…";
+"paywall.status.success" = "All set! Pro activated ✓";
+"paywall.status.cancelled" = "Purchase cancelled";
+"paywall.status.restoring" = "Restoring…";
+"paywall.status.restored" = "Done! Purchase restored ✓";
+"paywall.status.no_purchase" = "No previous purchase found";

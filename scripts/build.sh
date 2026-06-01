@@ -35,18 +35,42 @@ fi
 echo "Embebiendo Sparkle.framework..."
 cp -R "$SPARKLE_FRAMEWORK" "$APP_DIR/Contents/Frameworks/Sparkle.framework"
 
-echo "Compilando..."
-# -F le dice al linker dónde buscar el framework; -rpath le dice al binario en
-# runtime que mire en Contents/Frameworks (donde acabamos de copiar Sparkle).
+echo "Compilando para arm64..."
 swiftc -O \
     -target arm64-apple-macosx13.0 \
     -framework Cocoa \
     -framework ServiceManagement \
+    -framework Quartz \
+    -framework Vision \
+    -framework Carbon \
     -F "$SPARKLE_DIR" \
     -framework Sparkle \
     -Xlinker -rpath -Xlinker "@executable_path/../Frameworks" \
-    -o "$APP_DIR/Contents/MacOS/$APP_NAME" \
+    -o "/tmp/ClipShot-arm64" \
     src/main.swift
+
+echo "Compilando para x86_64 (Intel)..."
+swiftc -O \
+    -target x86_64-apple-macosx13.0 \
+    -framework Cocoa \
+    -framework ServiceManagement \
+    -framework Quartz \
+    -framework Vision \
+    -framework Carbon \
+    -F "$SPARKLE_DIR" \
+    -framework Sparkle \
+    -Xlinker -rpath -Xlinker "@executable_path/../Frameworks" \
+    -o "/tmp/ClipShot-x86_64" \
+    src/main.swift
+
+echo "Combinando arm64 + x86_64 en Universal Binary con lipo..."
+lipo -create \
+    "/tmp/ClipShot-arm64" \
+    "/tmp/ClipShot-x86_64" \
+    -output "$APP_DIR/Contents/MacOS/$APP_NAME"
+
+rm -f /tmp/ClipShot-arm64 /tmp/ClipShot-x86_64
+lipo -info "$APP_DIR/Contents/MacOS/$APP_NAME"
 
 if security find-identity -v -p codesigning | grep -q "$SIGN_IDENTITY"; then
     echo "Firmando Sparkle inside-out (XPC services → Updater.app → Autoupdate → framework)..."
