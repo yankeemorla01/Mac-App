@@ -30,6 +30,14 @@ if [ -f Resources/AppIcon.icns ]; then
     cp Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
 fi
 
+# Localización: copia cada <lang>.lproj (InfoPlist.strings) al bundle. Así macOS
+# muestra los diálogos de permisos en español si el Mac está en español, y en
+# inglés en cualquier otro caso. La UI dentro de la app se localiza en runtime.
+for lproj in Resources/*.lproj; do
+    [ -d "$lproj" ] || continue
+    cp -R "$lproj" "$APP_DIR/Contents/Resources/"
+done
+
 # Copia Sparkle.framework preservando los symlinks de la estructura Versions/Current.
 # `cp -R -L` los seguiría, lo que rompe la firma del framework.
 echo "Embebiendo Sparkle.framework..."

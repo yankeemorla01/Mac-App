@@ -9,9 +9,18 @@
     <key>CFBundleIdentifier</key>
     <string>com.josecasadogenao.clipshot</string>
     <key>CFBundleVersion</key>
-    <string>1.6</string>
+    <string>1.7</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.6</string>
+    <string>1.7</string>
+    <!-- Idioma base (inglés) + idiomas disponibles. macOS elige es.lproj si el
+         Mac está en español; en cualquier otro caso usa el inglés base. -->
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>es</string>
+    </array>
     <key>CFBundleExecutable</key>
     <string>ClipShot</string>
     <key>CFBundleIconFile</key>
@@ -27,19 +36,19 @@
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.productivity</string>
     <key>NSHumanReadableCopyright</key>
-    <string>© 2026 Jean Carlos Morla Genao. Todos los derechos reservados.</string>
+    <string>© 2026 Jean Carlos Morla Genao. All rights reserved.</string>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSDesktopFolderUsageDescription</key>
-    <string>ClipShot necesita acceso al Escritorio para detectar nuevos screenshots.</string>
+    <string>ClipShot needs access to your Desktop to detect new screenshots.</string>
     <key>NSDownloadsFolderUsageDescription</key>
-    <string>ClipShot necesita acceso a Descargas para detectar screenshots guardados ahí.</string>
+    <string>ClipShot needs access to Downloads to detect screenshots saved there.</string>
     <key>NSDocumentsFolderUsageDescription</key>
-    <string>ClipShot necesita acceso a Documentos para detectar screenshots guardados ahí.</string>
+    <string>ClipShot needs access to Documents to detect screenshots saved there.</string>
     <key>NSPicturesFolderUsageDescription</key>
-    <string>ClipShot necesita acceso a Imágenes para detectar screenshots guardados ahí.</string>
+    <string>ClipShot needs access to Pictures to detect screenshots saved there.</string>
 
     <!-- Sparkle auto-update. The feed lives on GitHub Pages; if the URL is moved, update here. -->
     <key>SUFeedURL</key>

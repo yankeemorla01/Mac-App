@@ -7,6 +7,26 @@ import Quartz   // QLPreviewPanel para Quick Look
 import Vision   // OCR de screenshots
 import Carbon.HIToolbox  // global hotkey via RegisterEventHotKey
 
+// MARK: - Localización
+//
+// ClipShot se distribuye en español e inglés. Detectamos el idioma preferido
+// del Mac UNA sola vez al arrancar: si el sistema está en español mostramos
+// español; en cualquier otro caso, inglés. `L(es, en)` elige el texto correcto
+// en cada punto de la UI, y `appLocale` formatea fechas y nombres de archivo en
+// el idioma adecuado.
+let appUsesSpanish: Bool = (Locale.preferredLanguages.first?.lowercased().hasPrefix("es")) ?? false
+
+/// Devuelve `es` si el Mac está en español, `en` en cualquier otro caso.
+func L(_ es: String, _ en: String) -> String {
+    appUsesSpanish ? es : en
+}
+
+/// Locale para fechas y nombres de archivo: español o inglés según el sistema.
+let appLocale = Locale(identifier: appUsesSpanish ? "es_ES" : "en_US")
+
+/// Versión corta (CFBundleShortVersionString) leída del Info.plist.
+let appShortVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? ""
+
 enum SavingMode: String {
     case appleNative = "apple"
     case instant = "instant"
@@ -435,7 +455,7 @@ final class WelcomeWindowController: NSWindowController {
         win.titleVisibility = .hidden
         win.isMovableByWindowBackground = true
         win.center()
-        win.title = "Bienvenido a ClipShot"
+        win.title = L("Bienvenido a ClipShot", "Welcome to ClipShot")
         super.init(window: win)
         setupChrome()
         render()
@@ -452,18 +472,18 @@ final class WelcomeWindowController: NSWindowController {
         content.addSubview(contentBox)
 
         // Bottom controls
-        skipButton = NSButton(title: "Saltar", target: self, action: #selector(skipAll))
+        skipButton = NSButton(title: L("Saltar", "Skip"), target: self, action: #selector(skipAll))
         skipButton.bezelStyle = .accessoryBarAction
         skipButton.isBordered = false
         skipButton.frame = NSRect(x: 30, y: 24, width: 70, height: 28)
         content.addSubview(skipButton)
 
-        backButton = NSButton(title: "Atrás", target: self, action: #selector(goBack))
+        backButton = NSButton(title: L("Atrás", "Back"), target: self, action: #selector(goBack))
         backButton.bezelStyle = .rounded
         backButton.frame = NSRect(x: 360, y: 24, width: 80, height: 28)
         content.addSubview(backButton)
 
-        nextButton = NSButton(title: "Siguiente", target: self, action: #selector(goNext))
+        nextButton = NSButton(title: L("Siguiente", "Next"), target: self, action: #selector(goNext))
         nextButton.bezelStyle = .rounded
         nextButton.keyEquivalent = "\r"
         nextButton.frame = NSRect(x: 450, y: 24, width: 100, height: 28)
@@ -506,7 +526,7 @@ final class WelcomeWindowController: NSWindowController {
         contentBox.addSubview(view)
 
         backButton.isHidden = currentStep == 0
-        nextButton.title = currentStep == totalSteps - 1 ? "Empezar" : "Siguiente"
+        nextButton.title = currentStep == totalSteps - 1 ? L("Empezar", "Get Started") : L("Siguiente", "Next")
         skipButton.isHidden = currentStep == totalSteps - 1
 
         for (idx, dot) in dotsRow.arrangedSubviews.enumerated() {
@@ -526,10 +546,12 @@ final class WelcomeWindowController: NSWindowController {
         icon.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(icon)
 
-        let title = label("Bienvenido a ClipShot", size: 28, weight: .bold)
-        let subtitle = label("Tu historial de screenshots, siempre listo en el portapapeles.",
+        let title = label(L("Bienvenido a ClipShot", "Welcome to ClipShot"), size: 28, weight: .bold)
+        let subtitle = label(L("Tu historial de screenshots, siempre listo en el portapapeles.",
+                               "Your screenshot history, always ready on the clipboard."),
                               size: 14, weight: .regular, color: .secondaryLabelColor, multiline: true)
-        let body = label("ClipShot guarda automáticamente cada screenshot que tomas. Click en el icono de la barra de menú para ver el historial. Click en cualquier captura para volverla a copiar al portapapeles.",
+        let body = label(L("ClipShot guarda automáticamente cada screenshot que tomas. Click en el icono de la barra de menú para ver el historial. Click en cualquier captura para volverla a copiar al portapapeles.",
+                           "ClipShot automatically saves every screenshot you take. Click the menu bar icon to see your history. Click any screenshot to copy it back to the clipboard."),
                           size: 13, weight: .regular, color: .labelColor, multiline: true)
         for x in [title, subtitle, body] {
             x.translatesAutoresizingMaskIntoConstraints = false
@@ -557,13 +579,14 @@ final class WelcomeWindowController: NSWindowController {
     private func buildFeatures() -> NSView {
         let container = NSView()
 
-        let title = label("¿Qué hace ClipShot?", size: 26, weight: .bold,
+        let title = label(L("¿Qué hace ClipShot?", "What does ClipShot do?"), size: 26, weight: .bold,
                             color: .labelColor)
         title.frame = NSRect(x: 20, y: 270, width: 440, height: 40)
         title.autoresizingMask = [.minYMargin, .width]
         container.addSubview(title)
 
-        let subtitle = label("Mucho más que solo guardar capturas:",
+        let subtitle = label(L("Mucho más que solo guardar capturas:",
+                                "Much more than just saving screenshots:"),
                                 size: 13, weight: .regular,
                                 color: .secondaryLabelColor)
         subtitle.frame = NSRect(x: 20, y: 240, width: 440, height: 22)
@@ -571,16 +594,21 @@ final class WelcomeWindowController: NSWindowController {
         container.addSubview(subtitle)
 
         let features: [(String, String, String)] = [
-            ("camera.viewfinder", "Capturas + Texto",
-             "Cada captura Y cada texto que copies, guardados en un historial unificado"),
-            ("magnifyingglass.circle", "Buscar todo con ⌘⇧V",
-             "Ventana de búsqueda desde cualquier app — fechas, contenido, OCR de imágenes"),
-            ("text.viewfinder", "OCR en capturas",
-             "Vision extrae el texto de cada captura — pegalo después como texto editable"),
-            ("eyedropper.halffull", "Picker de color",
-             "Click en cualquier pixel de una captura → te copia el hex"),
-            ("pin.fill", "Anclar favoritos",
-             "Items importantes sobreviven el límite del historial"),
+            ("camera.viewfinder", L("Capturas + Texto", "Screenshots + Text"),
+             L("Cada captura Y cada texto que copies, guardados en un historial unificado",
+               "Every screenshot AND every text you copy, saved in one unified history")),
+            ("magnifyingglass.circle", L("Buscar todo con ⌘⇧V", "Search everything with ⌘⇧V"),
+             L("Ventana de búsqueda desde cualquier app — fechas, contenido, OCR de imágenes",
+               "A search window from any app — dates, content, image OCR")),
+            ("text.viewfinder", L("OCR en capturas", "OCR on screenshots"),
+             L("Vision extrae el texto de cada captura — pegalo después como texto editable",
+               "Vision extracts the text from each screenshot — paste it later as editable text")),
+            ("eyedropper.halffull", L("Picker de color", "Color picker"),
+             L("Click en cualquier pixel de una captura → te copia el hex",
+               "Click any pixel of a screenshot → copies its hex code")),
+            ("pin.fill", L("Anclar favoritos", "Pin favorites"),
+             L("Items importantes sobreviven el límite del historial",
+               "Important items survive the history limit")),
         ]
 
         let stack = NSStackView()
@@ -625,8 +653,9 @@ final class WelcomeWindowController: NSWindowController {
 
     private func buildSavingMode() -> NSView {
         let v = NSView()
-        let title = label("¿Cómo quieres que funcione?", size: 22, weight: .bold)
-        let sub = label("Puedes cambiarlo en cualquier momento desde el menú.",
+        let title = label(L("¿Cómo quieres que funcione?", "How do you want it to work?"), size: 22, weight: .bold)
+        let sub = label(L("Puedes cambiarlo en cualquier momento desde el menú.",
+                          "You can change this anytime from the menu."),
                          size: 12, weight: .regular, color: .secondaryLabelColor, multiline: true)
         v.addSubview(title); v.addSubview(sub)
         title.translatesAutoresizingMaskIntoConstraints = false
@@ -634,13 +663,15 @@ final class WelcomeWindowController: NSWindowController {
 
         let card1 = makeCard(
             tag: 0,
-            title: "Mantener experiencia de Apple",
-            body: "ClipShot espera ~5 segundos después de que tomas el screenshot (cuando la miniatura de Apple desaparece). El portapapeles e historial se actualizan al final. Ideal si quieres dejar macOS exactamente como viene."
+            title: L("Mantener experiencia de Apple", "Keep the Apple experience"),
+            body: L("ClipShot espera ~5 segundos después de que tomas el screenshot (cuando la miniatura de Apple desaparece). El portapapeles e historial se actualizan al final. Ideal si quieres dejar macOS exactamente como viene.",
+                    "ClipShot waits ~5 seconds after you take the screenshot (until Apple's thumbnail disappears). The clipboard and history update at the end. Ideal if you want to leave macOS exactly as it is.")
         )
         let card2 = makeCard(
             tag: 1,
-            title: "Guardado instantáneo (recomendado)",
-            body: "ClipShot reemplaza la miniatura de Apple con una propia idéntica visualmente. El portapapeles e historial se actualizan al instante. Puedes pegar de inmediato. Mejor experiencia."
+            title: L("Guardado instantáneo (recomendado)", "Instant save (recommended)"),
+            body: L("ClipShot reemplaza la miniatura de Apple con una propia idéntica visualmente. El portapapeles e historial se actualizan al instante. Puedes pegar de inmediato. Mejor experiencia.",
+                    "ClipShot replaces Apple's thumbnail with a visually identical one of its own. The clipboard and history update instantly, so you can paste right away. Best experience.")
         )
         v.addSubview(card1); v.addSubview(card2)
         card1.translatesAutoresizingMaskIntoConstraints = false
@@ -718,14 +749,16 @@ final class WelcomeWindowController: NSWindowController {
 
     private func buildOverlay() -> NSView {
         let v = NSView()
-        let title = label("Mostrar miniatura flotante", size: 22, weight: .bold)
-        let body = label("Cuando tomes un screenshot, ClipShot mostrará una miniatura abajo a la derecha por unos segundos. Puedes hacer click para editarla o arrastrarla a otra app, igual que con la de Apple.",
+        let title = label(L("Mostrar miniatura flotante", "Show floating thumbnail"), size: 22, weight: .bold)
+        let body = label(L("Cuando tomes un screenshot, ClipShot mostrará una miniatura abajo a la derecha por unos segundos. Puedes hacer click para editarla o arrastrarla a otra app, igual que con la de Apple.",
+                           "When you take a screenshot, ClipShot shows a thumbnail in the bottom-right corner for a few seconds. You can click it to edit it or drag it to another app, just like Apple's."),
                           size: 13, weight: .regular, color: .secondaryLabelColor, multiline: true)
         let toggle = NSSwitch()
         toggle.state = overlayChoice ? .on : .off
         toggle.target = self
         toggle.action = #selector(toggleOverlay(_:))
-        let toggleLabel = label("Mostrar miniatura cuando capture un screenshot",
+        let toggleLabel = label(L("Mostrar miniatura cuando capture un screenshot",
+                                  "Show a thumbnail when I take a screenshot"),
                                   size: 13, weight: .medium)
 
         for x: NSView in [title, body, toggle, toggleLabel] {
@@ -752,14 +785,16 @@ final class WelcomeWindowController: NSWindowController {
 
     private func buildLogin() -> NSView {
         let v = NSView()
-        let title = label("Abrir al iniciar sesión", size: 22, weight: .bold)
-        let body = label("Para que ClipShot siempre esté listo, puede abrirse automáticamente cuando inicies tu Mac. Vive silenciosamente en la barra de menú.",
+        let title = label(L("Abrir al iniciar sesión", "Open at login"), size: 22, weight: .bold)
+        let body = label(L("Para que ClipShot siempre esté listo, puede abrirse automáticamente cuando inicies tu Mac. Vive silenciosamente en la barra de menú.",
+                           "So ClipShot is always ready, it can open automatically when you start your Mac. It lives quietly in the menu bar."),
                           size: 13, weight: .regular, color: .secondaryLabelColor, multiline: true)
         let toggle = NSSwitch()
         toggle.state = loginChoice ? .on : .off
         toggle.target = self
         toggle.action = #selector(toggleLogin(_:))
-        let toggleLabel = label("Abrir ClipShot automáticamente al iniciar sesión",
+        let toggleLabel = label(L("Abrir ClipShot automáticamente al iniciar sesión",
+                                  "Open ClipShot automatically at login"),
                                   size: 13, weight: .medium)
         for x: NSView in [title, body, toggle, toggleLabel] {
             x.translatesAutoresizingMaskIntoConstraints = false
@@ -787,12 +822,12 @@ final class WelcomeWindowController: NSWindowController {
         let v = NSView()
         let icon = NSImageView()
         icon.image = NSImage(systemSymbolName: "lock.shield.fill",
-                              accessibilityDescription: "Privacidad")
+                              accessibilityDescription: L("Privacidad", "Privacy"))
         icon.contentTintColor = .systemGreen
         icon.translatesAutoresizingMaskIntoConstraints = false
 
-        let title = label("Tu privacidad", size: 22, weight: .bold)
-        let body = label("""
+        let title = label(L("Tu privacidad", "Your privacy"), size: 22, weight: .bold)
+        let body = label(L("""
         ClipShot funciona 100% en tu Mac.
 
         • Tus screenshots y cualquier imagen que copies al portapapeles se guardan localmente en tu carpeta de Aplicación de ClipShot.
@@ -802,7 +837,17 @@ final class WelcomeWindowController: NSWindowController {
         • Puedes borrar tu historial en cualquier momento desde el menú.
 
         Es tuya, y solo tuya.
-        """, size: 13, weight: .regular, color: .labelColor, multiline: true)
+        """, """
+        ClipShot runs 100% on your Mac.
+
+        • Your screenshots and anything you copy to the clipboard are stored locally in your ClipShot Application Support folder.
+        • Nothing is sent to the internet. Ever.
+        • The developers have no access whatsoever to your images or your activity.
+        • No accounts, no servers, no telemetry.
+        • You can clear your history anytime from the menu.
+
+        It's yours, and yours alone.
+        """), size: 13, weight: .regular, color: .labelColor, multiline: true)
 
         v.addSubview(icon); v.addSubview(title); v.addSubview(body)
         title.translatesAutoresizingMaskIntoConstraints = false
@@ -830,8 +875,9 @@ final class WelcomeWindowController: NSWindowController {
         icon.contentTintColor = .systemGreen
         icon.translatesAutoresizingMaskIntoConstraints = false
 
-        let title = label("¡Todo listo!", size: 28, weight: .bold)
-        let body = label("ClipShot vive en tu barra de menú (icono de cámara). Toma un screenshot cuando quieras y aparecerá listo en el portapapeles. Puedes cambiar tus preferencias en cualquier momento desde el menú.",
+        let title = label(L("¡Todo listo!", "All set!"), size: 28, weight: .bold)
+        let body = label(L("ClipShot vive en tu barra de menú (icono de cámara). Toma un screenshot cuando quieras y aparecerá listo en el portapapeles. Puedes cambiar tus preferencias en cualquier momento desde el menú.",
+                           "ClipShot lives in your menu bar (the camera icon). Take a screenshot whenever you want and it'll be ready on the clipboard. You can change your preferences anytime from the menu."),
                           size: 13, weight: .regular, color: .secondaryLabelColor, multiline: true)
         v.addSubview(icon); v.addSubview(title); v.addSubview(body)
         title.translatesAutoresizingMaskIntoConstraints = false
@@ -963,9 +1009,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        // Si se abrió desde el DMG, Descargas o una ubicación translocada por
+        // Gatekeeper (no desde /Applications), ofrecer instalarse/actualizarse en
+        // /Applications y relanzar desde ahí. Si lo hace, terminamos este proceso.
+        if offerInstallToApplicationsIfNeeded() { return }
         cleanupExtendedAttributes()
         applyCurrentSavingMode()
         detectScreenshotLocation()
+        verifyFolderAccessAndPromptIfNeeded()
         loadHistory()
         loadTextHistory()
         setupStatusItem()
@@ -976,6 +1027,186 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !Settings.hasSeenIntro {
             showWelcome()
         }
+    }
+
+    // MARK: - Auto-instalación / actualización en /Applications
+    //
+    // Cuando el usuario abre ClipShot desde el DMG o desde Descargas, la app no
+    // está en /Applications (a veces ni siquiera tiene permiso de escritura ahí).
+    // Para que se comporte como una instalación/actualización limpia, ofrecemos
+    // copiarla a /Applications, reemplazando cualquier versión anterior, y
+    // relanzarla desde ahí. Las actualizaciones posteriores las maneja Sparkle.
+
+    /// Devuelve true si inició la instalación/relanzado y el proceso actual debe
+    /// terminar sin seguir con el arranque normal.
+    @discardableResult
+    func offerInstallToApplicationsIfNeeded() -> Bool {
+        let src = Bundle.main.bundleURL
+        let path = src.path
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+
+        // Ya está instalada en /Applications → arranque normal.
+        if path.hasPrefix("/Applications/") { return false }
+
+        // Solo ofrecemos instalar desde ubicaciones de "recién descargado":
+        // DMG montado, carpeta translocada por Gatekeeper, o Descargas/Escritorio.
+        // Así no molestamos en builds de desarrollo corridas desde otra ruta.
+        let looksDownloaded = path.hasPrefix("/Volumes/")
+            || path.contains("AppTranslocation")
+            || path.hasPrefix(home + "/Downloads")
+            || path.hasPrefix(home + "/Desktop")
+        guard looksDownloaded else { return false }
+
+        let dest = URL(fileURLWithPath: "/Applications/ClipShot.app")
+        let isUpdate = FileManager.default.fileExists(atPath: dest.path)
+
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        if isUpdate {
+            alert.messageText = L("Actualizar ClipShot", "Update ClipShot")
+            alert.informativeText = L(
+                "Ya tienes ClipShot instalado. ¿Reemplazar la versión anterior con esta (\(appShortVersion))?",
+                "ClipShot is already installed. Replace the previous version with this one (\(appShortVersion))?")
+            alert.addButton(withTitle: L("Reemplazar", "Replace"))
+        } else {
+            alert.messageText = L("Instalar ClipShot", "Install ClipShot")
+            alert.informativeText = L(
+                "Para que funcione bien, ClipShot debe vivir en tu carpeta de Aplicaciones. ¿Moverlo ahí ahora?",
+                "For ClipShot to work properly, it should live in your Applications folder. Move it there now?")
+            alert.addButton(withTitle: L("Mover a Aplicaciones", "Move to Applications"))
+        }
+        alert.addButton(withTitle: L("Ahora no", "Not now"))
+        let resp = alert.runModal()
+        NSApp.setActivationPolicy(.accessory)
+        guard resp == .alertFirstButtonReturn else { return false }
+
+        return performInstall(from: src, to: dest)
+    }
+
+    private func performInstall(from src: URL, to dest: URL) -> Bool {
+        let fm = FileManager.default
+
+        // Cierra cualquier instancia vieja en ejecución (icono en la barra) antes
+        // de reemplazar su bundle, para no quedar con dos copias corriendo.
+        if let bid = Bundle.main.bundleIdentifier {
+            for app in NSRunningApplication.runningApplications(withBundleIdentifier: bid)
+                where app != NSRunningApplication.current {
+                app.terminate()
+            }
+        }
+
+        var ok = false
+        do {
+            if fm.fileExists(atPath: dest.path) {
+                try fm.removeItem(at: dest)
+            }
+            try fm.copyItem(at: src, to: dest)
+            ok = true
+        } catch {
+            // Sin privilegios falló (típico si /Applications no es escribible por
+            // el usuario): pedimos autorización de admin, que muestra el diálogo
+            // de contraseña de macOS. Así "si no tiene permiso, lo pregunta".
+            clog("Install sin privilegios falló: \(error). Pidiendo autorización de admin…")
+            ok = installWithPrivileges(src: src, dest: dest)
+        }
+
+        guard ok else {
+            let err = NSAlert()
+            err.messageText = L("No se pudo instalar ClipShot", "Couldn't install ClipShot")
+            err.informativeText = L(
+                "Abre el DMG y arrastra ClipShot a tu carpeta de Aplicaciones manualmente.",
+                "Open the DMG and drag ClipShot into your Applications folder manually.")
+            err.runModal()
+            return false
+        }
+
+        // Quita el atributo de cuarentena para que abra sin avisos, y relanza
+        // desde /Applications. Luego termina este proceso (DMG/Descargas).
+        runTool("/usr/bin/xattr", ["-cr", dest.path])
+        runTool("/usr/bin/open", [dest.path])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { NSApp.terminate(nil) }
+        return true
+    }
+
+    /// Reemplazo de la app con privilegios de administrador vía osascript.
+    /// macOS muestra su propio diálogo pidiendo la contraseña del usuario.
+    private func installWithPrivileges(src: URL, dest: URL) -> Bool {
+        let shell = "rm -rf '\(dest.path)' && cp -R '\(src.path)' '\(dest.path)' && xattr -cr '\(dest.path)'"
+        let script = "do shell script \"\(shell)\" with administrator privileges"
+        let p = Process()
+        p.launchPath = "/usr/bin/osascript"
+        p.arguments = ["-e", script]
+        do {
+            try p.run()
+            p.waitUntilExit()
+            return p.terminationStatus == 0
+        } catch {
+            clog("osascript privileged install error: \(error)")
+            return false
+        }
+    }
+
+    private func runTool(_ launchPath: String, _ args: [String]) {
+        let p = Process()
+        p.launchPath = launchPath
+        p.arguments = args
+        try? p.run()
+        p.waitUntilExit()
+    }
+
+    /// Verifica que ClipShot pueda leer la carpeta donde macOS guarda los
+    /// screenshots. La primera lectura dispara el diálogo de permiso de macOS.
+    /// Si llegamos aquí sin acceso significa que el usuario lo DENEGÓ antes
+    /// (le dio a "No permitir"), y macOS ya no vuelve a preguntar por su cuenta.
+    /// Le ofrecemos un botón "Activar" que resetea esa decisión y reabre la app,
+    /// para que macOS pregunte otra vez — sin tener que ir a Ajustes a mano.
+    func verifyFolderAccessAndPromptIfNeeded() {
+        let fm = FileManager.default
+        // Si podemos listar la carpeta, hay acceso (aunque esté vacía).
+        if (try? fm.contentsOfDirectory(atPath: screenshotLocation.path)) != nil { return }
+
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = L("Activa el acceso a tus capturas",
+                              "Turn on access to your screenshots")
+        alert.informativeText = L(
+            "ClipShot necesita permiso para ver la carpeta donde se guardan tus screenshots (\(screenshotLocation.lastPathComponent)). Pulsa \"Activar\": ClipShot se reabrirá y macOS te lo preguntará de nuevo — esta vez elige \"Permitir\".",
+            "ClipShot needs permission to see the folder where your screenshots are saved (\(screenshotLocation.lastPathComponent)). Click \"Turn On\": ClipShot will reopen and macOS will ask again — this time choose \"Allow\".")
+        alert.addButton(withTitle: L("Activar", "Turn On"))
+        alert.addButton(withTitle: L("Abrir Ajustes…", "Open Settings…"))
+        alert.addButton(withTitle: L("Ahora no", "Not now"))
+        let resp = alert.runModal()
+        NSApp.setActivationPolicy(.accessory)
+        switch resp {
+        case .alertFirstButtonReturn:
+            resetFolderPermissionAndRelaunch()
+        case .alertSecondButtonReturn:
+            // Fallback manual: Acceso completo al disco (tiene botón "+" para
+            // agregar la app aunque haya sido denegada antes).
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+                NSWorkspace.shared.open(url)
+            }
+        default:
+            break
+        }
+    }
+
+    /// Resetea la decisión de permisos de ClipShot con `tccutil` y reabre la app.
+    /// El proceso nuevo, al no tener decisión previa, hará que macOS muestre otra
+    /// vez el diálogo de permiso desde cero.
+    private func resetFolderPermissionAndRelaunch() {
+        guard let bid = Bundle.main.bundleIdentifier else { return }
+        runTool("/usr/bin/tccutil", ["reset", "All", bid])
+        // Relanza tras una pequeña espera (para que este proceso alcance a salir)
+        // y termina el actual.
+        let appPath = Bundle.main.bundlePath
+        let task = Process()
+        task.launchPath = "/bin/sh"
+        task.arguments = ["-c", "sleep 0.5; open \"\(appPath)\""]
+        try? task.run()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { NSApp.terminate(nil) }
     }
 
     func showWelcome() {
@@ -1111,7 +1342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        let header = NSMenuItem(title: "ClipShot — historial", action: nil, keyEquivalent: "")
+        let header = NSMenuItem(title: L("ClipShot — historial", "ClipShot — History"), action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
         menu.addItem(.separator())
@@ -1119,14 +1350,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Sección "Anclados" (si hay items pineados) — sobreviven el cap de 30.
         let pinned = pinnedEntries()
         if !pinned.isEmpty {
-            let pinHeader = NSMenuItem(title: "📌 Anclados", action: nil, keyEquivalent: "")
+            let pinHeader = NSMenuItem(title: L("📌 Anclados", "📌 Pinned"), action: nil, keyEquivalent: "")
             pinHeader.isEnabled = false
             menu.addItem(pinHeader)
             for entry in pinned {
                 addEntryMenuItem(entry, to: menu)
             }
             menu.addItem(.separator())
-            let regularHeader = NSMenuItem(title: "Recientes", action: nil, keyEquivalent: "")
+            let regularHeader = NSMenuItem(title: L("Recientes", "Recent"), action: nil, keyEquivalent: "")
             regularHeader.isEnabled = false
             menu.addItem(regularHeader)
         }
@@ -1134,11 +1365,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Lista unificada: capturas y textos intercalados por fecha (más reciente arriba).
         let merged = mergedHistoryEntries()
         if merged.isEmpty && pinned.isEmpty {
-            let empty = NSMenuItem(title: "  Aún no hay historial", action: nil, keyEquivalent: "")
+            let empty = NSMenuItem(title: L("  Aún no hay historial", "  No history yet"), action: nil, keyEquivalent: "")
             empty.isEnabled = false
             menu.addItem(empty)
         } else if merged.isEmpty {
-            let empty = NSMenuItem(title: "  Sin items recientes", action: nil, keyEquivalent: "")
+            let empty = NSMenuItem(title: L("  Sin items recientes", "  No recent items"), action: nil, keyEquivalent: "")
             empty.isEnabled = false
             menu.addItem(empty)
         } else {
@@ -1148,65 +1379,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
-        let browseItem = NSMenuItem(title: "Buscar en historial…",
+        let browseItem = NSMenuItem(title: L("Buscar en historial…", "Search history…"),
                                       action: #selector(openHistoryBrowser),
                                       keyEquivalent: "f")
         browseItem.target = self
         menu.addItem(browseItem)
 
-        let openFolder = NSMenuItem(title: "Abrir carpeta de capturas", action: #selector(openHistoryFolder), keyEquivalent: "o")
+        let openFolder = NSMenuItem(title: L("Abrir carpeta de capturas", "Open screenshots folder"), action: #selector(openHistoryFolder), keyEquivalent: "o")
         openFolder.target = self
         menu.addItem(openFolder)
 
-        let openTextFolder = NSMenuItem(title: "Abrir carpeta de texto", action: #selector(openTextHistoryFolder), keyEquivalent: "")
+        let openTextFolder = NSMenuItem(title: L("Abrir carpeta de texto", "Open text folder"), action: #selector(openTextHistoryFolder), keyEquivalent: "")
         openTextFolder.target = self
         menu.addItem(openTextFolder)
 
-        let clear = NSMenuItem(title: "Limpiar historial", action: #selector(clearHistory), keyEquivalent: "")
+        let clear = NSMenuItem(title: L("Limpiar historial", "Clear history"), action: #selector(clearHistory), keyEquivalent: "")
         clear.target = self
         menu.addItem(clear)
 
         menu.addItem(.separator())
-        let prefs = NSMenuItem(title: "Preferencias", action: nil, keyEquivalent: "")
+        let prefs = NSMenuItem(title: L("Preferencias", "Preferences"), action: nil, keyEquivalent: "")
         let prefsMenu = NSMenu()
-        let modeHeader = NSMenuItem(title: "Modo de guardado", action: nil, keyEquivalent: "")
+        let modeHeader = NSMenuItem(title: L("Modo de guardado", "Saving mode"), action: nil, keyEquivalent: "")
         modeHeader.isEnabled = false
         prefsMenu.addItem(modeHeader)
-        let modeApple = NSMenuItem(title: "  Mantener experiencia de Apple (~5s)",
+        let modeApple = NSMenuItem(title: L("  Mantener experiencia de Apple (~5s)", "  Keep the Apple experience (~5s)"),
                                      action: #selector(setModeApple), keyEquivalent: "")
         modeApple.target = self
         modeApple.state = Settings.savingMode == .appleNative ? .on : .off
         prefsMenu.addItem(modeApple)
-        let modeInstant = NSMenuItem(title: "  Guardado instantáneo",
+        let modeInstant = NSMenuItem(title: L("  Guardado instantáneo", "  Instant save"),
                                        action: #selector(setModeInstant), keyEquivalent: "")
         modeInstant.target = self
         modeInstant.state = Settings.savingMode == .instant ? .on : .off
         prefsMenu.addItem(modeInstant)
         prefsMenu.addItem(.separator())
-        let overlayItem = NSMenuItem(title: "Mostrar miniatura flotante",
+        let overlayItem = NSMenuItem(title: L("Mostrar miniatura flotante", "Show floating thumbnail"),
                                        action: #selector(toggleOverlayPref), keyEquivalent: "")
         overlayItem.target = self
         overlayItem.state = Settings.showOverlay ? .on : .off
         prefsMenu.addItem(overlayItem)
-        let loginItem = NSMenuItem(title: "Abrir al iniciar sesión",
+        let loginItem = NSMenuItem(title: L("Abrir al iniciar sesión", "Open at login"),
                                      action: #selector(toggleLoginPref), keyEquivalent: "")
         loginItem.target = self
         loginItem.state = Settings.openAtLogin ? .on : .off
         prefsMenu.addItem(loginItem)
-        let textHistoryItem = NSMenuItem(title: "Guardar texto copiado",
+        let textHistoryItem = NSMenuItem(title: L("Guardar texto copiado", "Save copied text"),
                                            action: #selector(toggleTextHistoryPref), keyEquivalent: "")
         textHistoryItem.target = self
         textHistoryItem.state = Settings.saveTextHistory ? .on : .off
         prefsMenu.addItem(textHistoryItem)
 
-        let ocrItem = NSMenuItem(title: "OCR en capturas (texto buscable)",
+        let ocrItem = NSMenuItem(title: L("OCR en capturas (texto buscable)", "OCR on screenshots (searchable text)"),
                                    action: #selector(toggleOCRPref), keyEquivalent: "")
         ocrItem.target = self
         ocrItem.state = Settings.enableOCR ? .on : .off
         prefsMenu.addItem(ocrItem)
 
         let (hkKey, hkMods) = Settings.globalHotkey
-        let hkLabel = "Atajo global: " + HotkeyRecorderView.describe(key: hkKey, mods: hkMods) + "…"
+        let hkLabel = L("Atajo global: ", "Global shortcut: ") + HotkeyRecorderView.describe(key: hkKey, mods: hkMods) + "…"
         let hkItem = NSMenuItem(title: hkLabel,
                                   action: #selector(openHotkeySettings), keyEquivalent: "")
         hkItem.target = self
@@ -1217,14 +1448,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // itself, NOT on AppDelegate. Targeting the controller is what makes the
         // "Check for Updates…" item enabled and clickable.
         let checkUpdates = NSMenuItem(
-            title: "Buscar actualizaciones…",
+            title: L("Buscar actualizaciones…", "Check for updates…"),
             action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
             keyEquivalent: ""
         )
         checkUpdates.target = updaterController
         prefsMenu.addItem(checkUpdates)
         prefsMenu.addItem(.separator())
-        let showIntro = NSMenuItem(title: "Ver bienvenida otra vez…",
+        let showIntro = NSMenuItem(title: L("Ver bienvenida otra vez…", "Show welcome again…"),
                                      action: #selector(reopenWelcome), keyEquivalent: "")
         showIntro.target = self
         prefsMenu.addItem(showIntro)
@@ -1233,16 +1464,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // DMG: todo gratis. Mostramos un "Apoyar el desarrollo" opcional para
         // los que quieran donar — no es paywall, es propina si les gustó.
-        let supportItem = NSMenuItem(title: "💙 Apoyar el desarrollo…",
+        let supportItem = NSMenuItem(title: L("💙 Apoyar el desarrollo…", "💙 Support development…"),
                                        action: #selector(openSupport), keyEquivalent: "")
         supportItem.target = self
         menu.addItem(supportItem)
 
-        let about = NSMenuItem(title: "Acerca de ClipShot", action: #selector(showAbout), keyEquivalent: "")
+        let about = NSMenuItem(title: L("Acerca de ClipShot", "About ClipShot"), action: #selector(showAbout), keyEquivalent: "")
         about.target = self
         menu.addItem(about)
 
-        let quit = NSMenuItem(title: "Salir", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: L("Salir", "Quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
 
         menu.delegate = self
@@ -1398,7 +1629,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let sub = NSMenu()
         sub.autoenablesItems = false
 
-        let pinTitle = Settings.isPinned(id) ? "Quitar anclado" : "📌 Anclar"
+        let pinTitle = Settings.isPinned(id) ? L("Quitar anclado", "Unpin") : L("📌 Anclar", "📌 Pin")
         let pinItem = NSMenuItem(title: pinTitle, action: #selector(togglePinEntry(_:)), keyEquivalent: "")
         pinItem.target = self
         pinItem.representedObject = id
@@ -1407,14 +1638,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if isImage {
             let sidecar = fileURL.deletingPathExtension().appendingPathExtension("ocr.txt")
             if FileManager.default.fileExists(atPath: sidecar.path) {
-                let ocrItem = NSMenuItem(title: "📝 Copiar solo el texto",
+                let ocrItem = NSMenuItem(title: L("📝 Copiar solo el texto", "📝 Copy text only"),
                                            action: #selector(copyOCRTextFromImage(_:)),
                                            keyEquivalent: "")
                 ocrItem.target = self
                 ocrItem.representedObject = fileURL
                 sub.addItem(ocrItem)
             }
-            let pickerItem = NSMenuItem(title: "🎨 Picker de color…",
+            let pickerItem = NSMenuItem(title: L("🎨 Picker de color…", "🎨 Color picker…"),
                                           action: #selector(openColorPicker(_:)),
                                           keyEquivalent: "")
             pickerItem.target = self
@@ -1424,13 +1655,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         sub.addItem(.separator())
 
-        let revealItem = NSMenuItem(title: "Mostrar en Finder",
+        let revealItem = NSMenuItem(title: L("Mostrar en Finder", "Show in Finder"),
                                       action: #selector(revealEntry(_:)), keyEquivalent: "")
         revealItem.target = self
         revealItem.representedObject = fileURL
         sub.addItem(revealItem)
 
-        let deleteItem = NSMenuItem(title: "Borrar", action: #selector(deleteEntry(_:)), keyEquivalent: "")
+        let deleteItem = NSMenuItem(title: L("Borrar", "Delete"), action: #selector(deleteEntry(_:)), keyEquivalent: "")
         deleteItem.target = self
         deleteItem.representedObject = ["id": id, "fileURL": fileURL, "isImage": isImage] as [String: Any]
         sub.addItem(deleteItem)
@@ -1540,7 +1771,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func formatDate(_ d: Date) -> String {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "es_ES")
+        f.locale = appLocale
         f.dateStyle = .short
         f.timeStyle = .medium
         return f.string(from: d)
@@ -1643,8 +1874,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let counts = countHistoryOnDisk()
         let textCounts = countTextOnDisk()
         let alert = NSAlert()
-        alert.messageText = "¿Limpiar historial?"
-        alert.informativeText = """
+        alert.messageText = L("¿Limpiar historial?", "Clear history?")
+        alert.informativeText = L("""
         Capturas guardadas: \(counts.total)
           • Últimos 30 días: \(counts.recent)
           • Anteriores: \(counts.old)
@@ -1654,10 +1885,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
           • Anteriores: \(textCounts.old)
 
         ¿Qué quieres borrar?
-        """
-        alert.addButton(withTitle: "Borrar TODO")
-        alert.addButton(withTitle: "Solo lo de más de 30 días")
-        alert.addButton(withTitle: "Cancelar")
+        """, """
+        Saved screenshots: \(counts.total)
+          • Last 30 days: \(counts.recent)
+          • Older: \(counts.old)
+
+        Saved texts: \(textCounts.total)
+          • Last 30 days: \(textCounts.recent)
+          • Older: \(textCounts.old)
+
+        What do you want to delete?
+        """)
+        alert.addButton(withTitle: L("Borrar TODO", "Delete ALL"))
+        alert.addButton(withTitle: L("Solo lo de más de 30 días", "Only items older than 30 days"))
+        alert.addButton(withTitle: L("Cancelar", "Cancel"))
         let response = alert.runModal()
         switch response {
         case .alertFirstButtonReturn:
@@ -1804,8 +2045,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func showAbout() {
         let alert = NSAlert()
-        alert.messageText = "ClipShot 1.6"
-        alert.informativeText = """
+        alert.messageText = "ClipShot 1.7"
+        alert.informativeText = L("""
         Guarda automáticamente cada screenshot y, opcionalmente, cada texto que copias.
         Mantiene un historial al que puedes volver con un solo clic.
 
@@ -1820,7 +2061,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         © 2026 Jean Carlos Morla Genao. Licencia MIT.
         Este software se distribuye "tal cual", sin garantías expresas o implícitas. El autor no se hace responsable de pérdida de datos o daños derivados del uso.
-        """
+        """, """
+        Automatically saves every screenshot and, optionally, every text you copy.
+        Keeps a history you can return to with a single click.
+
+        How to capture:
+          • Cmd+Shift+Ctrl+3/4 — straight to the clipboard
+          • Cmd+Shift+3/4 — saves to \(screenshotLocation.path)
+          • Cmd+C — saves the text to your history (if enabled in Preferences)
+
+        History saved in:
+          \(storeDir.path)
+          \(textStoreDir.path)
+
+        © 2026 Jean Carlos Morla Genao. MIT License.
+        This software is provided "as is", without warranties of any kind, express or implied. The author is not liable for any data loss or damages arising from its use.
+        """)
         alert.runModal()
     }
 
@@ -1897,7 +2153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let now = Date()
         let id = UUID().uuidString
         let monthFmt = DateFormatter()
-        monthFmt.locale = Locale(identifier: "es_ES")
+        monthFmt.locale = appLocale
         monthFmt.dateFormat = "MMMM yyyy"
         var monthName = monthFmt.string(from: now)
         monthName = monthName.prefix(1).uppercased() + monthName.dropFirst()
@@ -1905,9 +2161,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         try? FileManager.default.createDirectory(at: monthDir, withIntermediateDirectories: true)
 
         let nameFmt = DateFormatter()
-        nameFmt.locale = Locale(identifier: "es_ES")
-        nameFmt.dateFormat = "yyyy-MM-dd 'a las' HH-mm-ss"
-        let filename = "Texto \(nameFmt.string(from: now))_\(id.prefix(6)).txt"
+        nameFmt.locale = appLocale
+        nameFmt.dateFormat = L("yyyy-MM-dd 'a las' HH-mm-ss", "yyyy-MM-dd 'at' HH-mm-ss")
+        let filename = "\(L("Texto", "Text")) \(nameFmt.string(from: now))_\(id.prefix(6)).txt"
         let url = monthDir.appendingPathComponent(filename)
 
         guard let data = text.data(using: .utf8) else { return }
@@ -2136,7 +2392,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let now = Date()
         let id = UUID().uuidString
         let monthFmt = DateFormatter()
-        monthFmt.locale = Locale(identifier: "es_ES")
+        monthFmt.locale = appLocale
         monthFmt.dateFormat = "MMMM yyyy"
         var monthName = monthFmt.string(from: now)
         monthName = monthName.prefix(1).uppercased() + monthName.dropFirst()
@@ -2144,9 +2400,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         try? FileManager.default.createDirectory(at: monthDir, withIntermediateDirectories: true)
 
         let nameFmt = DateFormatter()
-        nameFmt.locale = Locale(identifier: "es_ES")
-        nameFmt.dateFormat = "yyyy-MM-dd 'a las' HH-mm-ss"
-        let filename = "Captura \(nameFmt.string(from: now))_\(id.prefix(6)).png"
+        nameFmt.locale = appLocale
+        nameFmt.dateFormat = L("yyyy-MM-dd 'a las' HH-mm-ss", "yyyy-MM-dd 'at' HH-mm-ss")
+        let filename = "\(L("Captura", "Screenshot")) \(nameFmt.string(from: now))_\(id.prefix(6)).png"
         let url = monthDir.appendingPathComponent(filename)
 
         guard let tiff = image.tiffRepresentation,
@@ -2233,7 +2489,7 @@ final class ColorPickerWindowController: NSWindowController, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        w.title = "Picker de color"
+        w.title = L("Picker de color", "Color picker")
         w.center()
         super.init(window: w)
         w.delegate = self
@@ -2273,7 +2529,7 @@ final class ColorPickerWindowController: NSWindowController, NSWindowDelegate {
         swatch.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(swatch)
 
-        hexLabel = NSTextField(labelWithString: "Pasá el mouse sobre la imagen")
+        hexLabel = NSTextField(labelWithString: L("Pasá el mouse sobre la imagen", "Hover over the image"))
         hexLabel.font = .monospacedSystemFont(ofSize: 16, weight: .bold)
         hexLabel.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(hexLabel)
@@ -2290,7 +2546,7 @@ final class ColorPickerWindowController: NSWindowController, NSWindowDelegate {
         hslLabel.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(hslLabel)
 
-        let hint = NSTextField(labelWithString: "Click en la imagen para copiar el hex")
+        let hint = NSTextField(labelWithString: L("Click en la imagen para copiar el hex", "Click the image to copy the hex"))
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .tertiaryLabelColor
         hint.translatesAutoresizingMaskIntoConstraints = false
@@ -2479,7 +2735,7 @@ final class HotkeyRecorderView: NSView {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         isRecording = true
-        label.stringValue = "Apretá la combinación…"
+        label.stringValue = L("Apretá la combinación…", "Press the shortcut…")
         label.textColor = .systemBlue
     }
 
@@ -2499,7 +2755,7 @@ final class HotkeyRecorderView: NSView {
         if flags.contains(.option) { mods |= UInt32(optionKey) }
         if flags.contains(.control) { mods |= UInt32(controlKey) }
         guard mods != 0 else {
-            label.stringValue = "Necesita un modificador (⌘⌥⌃⇧)"
+            label.stringValue = L("Necesita un modificador (⌘⌥⌃⇧)", "Needs a modifier (⌘⌥⌃⇧)")
             label.textColor = .systemRed
             return
         }
@@ -2532,7 +2788,7 @@ final class HotkeyRecorderView: NSView {
             11:"B",12:"Q",13:"W",14:"E",15:"R",16:"Y",17:"T",
             31:"O",32:"U",34:"I",35:"P",37:"L",38:"J",40:"K",
             45:"N",46:"M",18:"1",19:"2",20:"3",21:"4",23:"5",22:"6",
-            26:"7",28:"8",25:"9",29:"0",36:"⏎",49:"Espacio",51:"⌫",
+            26:"7",28:"8",25:"9",29:"0",36:"⏎",49:L("Espacio","Space"),51:"⌫",
             53:"⎋",123:"←",124:"→",125:"↓",126:"↑",
         ]
         return map[keyCode] ?? "?"
@@ -2549,7 +2805,7 @@ final class HotkeySettingsWindowController: NSWindowController {
             styleMask: [.titled, .closable],
             backing: .buffered, defer: false
         )
-        w.title = "Atajo global"
+        w.title = L("Atajo global", "Global shortcut")
         w.center()
         super.init(window: w)
         buildUI()
@@ -2559,12 +2815,12 @@ final class HotkeySettingsWindowController: NSWindowController {
 
     private func buildUI() {
         guard let cv = window?.contentView else { return }
-        let title = NSTextField(labelWithString: "Atajo para abrir Buscar en historial")
+        let title = NSTextField(labelWithString: L("Atajo para abrir Buscar en historial", "Shortcut to open Search history"))
         title.font = .systemFont(ofSize: 13, weight: .medium)
         title.translatesAutoresizingMaskIntoConstraints = false
         cv.addSubview(title)
 
-        let hint = NSTextField(labelWithString: "Click en el campo y apretá la combinación. Esc cancela.")
+        let hint = NSTextField(labelWithString: L("Click en el campo y apretá la combinación. Esc cancela.", "Click the field and press the shortcut. Esc cancels."))
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
         hint.translatesAutoresizingMaskIntoConstraints = false
@@ -2580,7 +2836,7 @@ final class HotkeySettingsWindowController: NSWindowController {
         }
         cv.addSubview(recorder)
 
-        let resetBtn = NSButton(title: "Volver al default (⌘⇧V)", target: self, action: #selector(resetDefault))
+        let resetBtn = NSButton(title: L("Volver al default (⌘⇧V)", "Reset to default (⌘⇧V)"), target: self, action: #selector(resetDefault))
         resetBtn.bezelStyle = .accessoryBarAction
         resetBtn.isBordered = false
         resetBtn.translatesAutoresizingMaskIntoConstraints = false
@@ -2657,11 +2913,11 @@ final class PaywallWindowController: NSWindowController {
         let trial = Settings.trialDaysRemaining
         let subStr: String
         if Settings.isPro && !Settings.d_isProSet {
-            subStr = "Te quedan \(trial) días de prueba gratis"
+            subStr = L("Te quedan \(trial) días de prueba gratis", "You have \(trial) days left in your free trial")
         } else if Settings.isPro {
-            subStr = "Ya tienes ClipShot Pro activo ✓"
+            subStr = L("Ya tienes ClipShot Pro activo ✓", "You already have ClipShot Pro ✓")
         } else {
-            subStr = "Tu trial terminó. Desbloquea las features Pro:"
+            subStr = L("Tu trial terminó. Desbloquea las features Pro:", "Your trial has ended. Unlock the Pro features:")
         }
         let subtitle = NSTextField(labelWithString: subStr)
         subtitle.font = .systemFont(ofSize: 14)
@@ -2674,20 +2930,20 @@ final class PaywallWindowController: NSWindowController {
         features.translatesAutoresizingMaskIntoConstraints = false
         cv.addSubview(features)
 
-        let priceLabel = NSTextField(labelWithString: "Una sola vez · $9.99")
+        let priceLabel = NSTextField(labelWithString: L("Una sola vez · $9.99", "One-time · $9.99"))
         priceLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         priceLabel.alignment = .center
         priceLabel.translatesAutoresizingMaskIntoConstraints = false
         cv.addSubview(priceLabel)
 
-        let buyButton = NSButton(title: "Desbloquear Pro", target: self, action: #selector(buyPro))
+        let buyButton = NSButton(title: L("Desbloquear Pro", "Unlock Pro"), target: self, action: #selector(buyPro))
         buyButton.bezelStyle = .rounded
         buyButton.keyEquivalent = "\r"
         buyButton.controlSize = .large
         buyButton.translatesAutoresizingMaskIntoConstraints = false
         cv.addSubview(buyButton)
 
-        let restoreButton = NSButton(title: "Restaurar compra", target: self, action: #selector(restorePro))
+        let restoreButton = NSButton(title: L("Restaurar compra", "Restore purchase"), target: self, action: #selector(restorePro))
         restoreButton.bezelStyle = .accessoryBarAction
         restoreButton.isBordered = false
         restoreButton.translatesAutoresizingMaskIntoConstraints = false
@@ -2725,12 +2981,12 @@ final class PaywallWindowController: NSWindowController {
 
     private func makeFeatureList() -> NSStackView {
         let items: [(String, String)] = [
-            ("doc.text.viewfinder", "OCR — buscar texto dentro de tus capturas"),
-            ("infinity", "Historial ilimitado (Free: 15 items)"),
-            ("icloud", "Sincronización entre Macs (próximamente)"),
-            ("eyedropper", "Picker de color en capturas"),
-            ("pencil.tip.crop.circle", "Markup rápido sobre capturas (próximamente)"),
-            ("heart.fill", "Apoyas el desarrollo independiente 💙"),
+            ("doc.text.viewfinder", L("OCR — buscar texto dentro de tus capturas", "OCR — search for text inside your screenshots")),
+            ("infinity", L("Historial ilimitado (Free: 15 items)", "Unlimited history (Free: 15 items)")),
+            ("icloud", L("Sincronización entre Macs (próximamente)", "Sync across Macs (coming soon)")),
+            ("eyedropper", L("Picker de color en capturas", "Color picker on screenshots")),
+            ("pencil.tip.crop.circle", L("Markup rápido sobre capturas (próximamente)", "Quick markup on screenshots (coming soon)")),
+            ("heart.fill", L("Apoyas el desarrollo independiente 💙", "Support independent development 💙")),
         ]
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -2766,13 +3022,13 @@ final class PaywallWindowController: NSWindowController {
 
     @objc private func restorePro() {
         let alert = NSAlert()
-        alert.messageText = "Pega tu código de licencia"
-        alert.informativeText = "Te lo mandamos por email después de la compra."
+        alert.messageText = L("Pega tu código de licencia", "Paste your license code")
+        alert.informativeText = L("Te lo mandamos por email después de la compra.", "We email it to you after purchase.")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
         field.placeholderString = "CLIPSHOT-XXXX-XXXX-XXXX"
         alert.accessoryView = field
-        alert.addButton(withTitle: "Activar")
-        alert.addButton(withTitle: "Cancelar")
+        alert.addButton(withTitle: L("Activar", "Activate"))
+        alert.addButton(withTitle: L("Cancelar", "Cancel"))
         if alert.runModal() == .alertFirstButtonReturn {
             let code = field.stringValue.trimmingCharacters(in: .whitespaces)
             // TODO: validación real contra Gumroad/Paddle API. Por ahora cualquier
@@ -2780,13 +3036,13 @@ final class PaywallWindowController: NSWindowController {
             if code.hasPrefix("CLIPSHOT-") {
                 Settings.setPro(true)
                 let ok = NSAlert()
-                ok.messageText = "ClipShot Pro activado ✓"
+                ok.messageText = L("ClipShot Pro activado ✓", "ClipShot Pro activated ✓")
                 ok.runModal()
                 window?.close()
             } else {
                 let err = NSAlert()
-                err.messageText = "Código inválido"
-                err.informativeText = "Verifica que sea el que recibiste por email."
+                err.messageText = L("Código inválido", "Invalid code")
+                err.informativeText = L("Verifica que sea el que recibiste por email.", "Make sure it's the one you received by email.")
                 err.runModal()
             }
         }
@@ -2888,7 +3144,7 @@ final class HistoryBrowserWindowController: NSWindowController, NSTableViewDataS
             backing: .buffered,
             defer: false
         )
-        w.title = "Buscar en historial"
+        w.title = L("Buscar en historial", "Search history")
         w.minSize = NSSize(width: 380, height: 360)
         w.center()
         w.titlebarAppearsTransparent = false
@@ -2903,7 +3159,7 @@ final class HistoryBrowserWindowController: NSWindowController, NSTableViewDataS
         guard let cv = window?.contentView else { return }
 
         searchField = NSSearchField()
-        searchField.placeholderString = "Buscar capturas o texto…"
+        searchField.placeholderString = L("Buscar capturas o texto…", "Search screenshots or text…")
         searchField.delegate = self
         searchField.sendsSearchStringImmediately = true
         searchField.sendsWholeSearchString = false
@@ -3198,7 +3454,7 @@ final class HistoryBrowserCell: NSTableCellView {
             if let img = h.image {
                 preview.image = owner?.thumbnail(from: img, maxSize: NSSize(width: 88, height: 56))
             }
-            bodyLabel.stringValue = "📸 Captura"
+            bodyLabel.stringValue = L("📸 Captura", "📸 Screenshot")
         case .text(_, let t):
             let content = t.content ?? ""
             let oneLine = content

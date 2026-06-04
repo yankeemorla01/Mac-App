@@ -1,0 +1,10 @@
+/* ClipShot — localización en español para los textos del Info.plist. */
+
+"CFBundleName" = "ClipShot";
+"CFBundleDisplayName" = "ClipShot";
+"NSHumanReadableCopyright" = "© 2026 Jean Carlos Morla Genao. Todos los derechos reservados.";
+
+"NSDesktopFolderUsageDescription" = "ClipShot necesita acceso al Escritorio para detectar nuevos screenshots.";
+"NSDownloadsFolderUsageDescription" = "ClipShot necesita acceso a Descargas para detectar screenshots guardados ahí.";
+"NSDocumentsFolderUsageDescription" = "ClipShot necesita acceso a Documentos para detectar screenshots guardados ahí.";
+"NSPicturesFolderUsageDescription" = "ClipShot necesita acceso a Imágenes para detectar screenshots guardados ahí.";
